@@ -2,9 +2,7 @@
 
 part of 'expense_model.dart';
 
-// **************************************************************************
-// TypeAdapterGenerator
-// **************************************************************************
+
 
 class ExpenseModelAdapter extends TypeAdapter<ExpenseModel> {
   @override

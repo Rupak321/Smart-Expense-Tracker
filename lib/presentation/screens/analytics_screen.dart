@@ -24,12 +24,8 @@ class AnalyticsScreen extends StatelessWidget {
       stream: box.watch(),
       builder: (context, snapshot) {
         final transactions = _sortedTransactions(box);
-        final expenses = transactions
-            .where((transaction) => transaction.isExpense)
-            .toList();
-        final incomePaisa = _totalPaisa(
-          transactions.where((transaction) => !transaction.isExpense),
-        );
+        final expenses = transactions.where((transaction) => transaction.isExpense).toList();
+        final incomePaisa = _totalPaisa(transactions.where((transaction) => !transaction.isExpense));
         final expensePaisa = _totalPaisa(expenses);
         final categorySlices = _buildCategorySlices(expenses);
         final trend = _buildRecentTrend(expenses);
@@ -56,20 +52,20 @@ class AnalyticsScreen extends StatelessWidget {
                 child: Text(
                   'Category Details',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _ink,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
             ),
             if (categorySlices.isEmpty)
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, 24, 16, 170),
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 170),
                   child: Center(
                     child: Text(
                       'Add expenses to see detailed analytics',
-                      style: TextStyle(color: Colors.grey, fontSize: 14),
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
                     ),
                   ),
                 ),
@@ -108,8 +104,7 @@ class AnalyticsScreen extends StatelessWidget {
   int _totalPaisa(Iterable<ExpenseModel> transactions) {
     return transactions.fold(
       0,
-      (total, transaction) =>
-          total + MoneyUtils.amountToPaisa(transaction.amount),
+      (total, transaction) => total + transaction.amountPaisa,
     );
   }
 
@@ -118,8 +113,8 @@ class AnalyticsScreen extends StatelessWidget {
     for (final expense in expenses) {
       totals.update(
         expense.category,
-        (value) => value + MoneyUtils.amountToPaisa(expense.amount),
-        ifAbsent: () => MoneyUtils.amountToPaisa(expense.amount),
+        (value) => value + expense.amountPaisa,
+        ifAbsent: () => expense.amountPaisa,
       );
     }
 
@@ -127,7 +122,7 @@ class AnalyticsScreen extends StatelessWidget {
       'Food': const Color(0xFFE76F51),
       'Travel': const Color(0xFF457B9D),
       'Shopping': const Color(0xFFE9C46A),
-      'Salary': const Color(0xFF2A9D8F),
+      'Bills': const Color(0xFF2A9D8F),
       'Other': const Color(0xFF7C6AAB),
     };
 
@@ -181,8 +176,8 @@ class AnalyticsScreen extends StatelessWidget {
         return Icons.flight_takeoff_rounded;
       case 'Shopping':
         return Icons.shopping_bag_rounded;
-      case 'Salary':
-        return Icons.monetization_on_rounded;
+      case 'Bills':
+        return Icons.receipt_long_rounded;
       default:
         return Icons.receipt_long_rounded;
     }
@@ -194,30 +189,30 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'Analytics',
-              style: TextStyle(
-                color: AnalyticsScreen._ink,
-                fontSize: 24,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: colorScheme.onSurface,
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: AnalyticsScreen._accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-            child: const Icon(
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
               Icons.insights_rounded,
-              color: AnalyticsScreen._accent,
+              color: colorScheme.primary,
             ),
           ),
         ],
@@ -245,7 +240,7 @@ class _SummaryBand extends StatelessWidget {
               label: 'Balance',
               amount: MoneyUtils.formatPaisa(balancePaisa),
               icon: Icons.account_balance_wallet_rounded,
-              color: AnalyticsScreen._accent,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
           const SizedBox(width: 10),
@@ -254,7 +249,7 @@ class _SummaryBand extends StatelessWidget {
               label: 'Spent',
               amount: MoneyUtils.formatPaisa(expensePaisa),
               icon: Icons.trending_down_rounded,
-              color: const Color(0xFFE63946),
+              color: Theme.of(context).colorScheme.error,
             ),
           ),
         ],
@@ -282,9 +277,9 @@ class _MetricCard extends StatelessWidget {
       height: 104,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EEEB)),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,8 +298,8 @@ class _MetricCard extends StatelessWidget {
           const Spacer(),
           Text(
             label,
-            style: const TextStyle(
-              color: Color(0xFF6B7470),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -316,8 +311,8 @@ class _MetricCard extends StatelessWidget {
             child: Text(
               amount,
               maxLines: 1,
-              style: const TextStyle(
-                color: AnalyticsScreen._ink,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
               ),
@@ -337,24 +332,24 @@ class _ChartPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EEEB)),
+        border: Border.all(color: colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Expense Breakdown',
-            style: TextStyle(
-              color: AnalyticsScreen._ink,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
           ),
           const SizedBox(height: 18),
           Center(
@@ -366,15 +361,15 @@ class _ChartPanel extends StatelessWidget {
                 children: [
                   CustomPaint(
                     size: const Size.square(176),
-                    painter: _DonutChartPainter(slices: slices),
+                    painter: _DonutChartPainter(slices: slices, backgroundColor: colorScheme.outline),
                   ),
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
+                      Text(
                         'Total Spent',
                         style: TextStyle(
-                          color: Color(0xFF7A8580),
+                          color: colorScheme.onSurfaceVariant,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -388,8 +383,8 @@ class _ChartPanel extends StatelessWidget {
                             MoneyUtils.formatPaisa(totalExpensePaisa),
                             textAlign: TextAlign.center,
                             maxLines: 1,
-                            style: const TextStyle(
-                              color: AnalyticsScreen._ink,
+                            style: TextStyle(
+                              color: colorScheme.onSurface,
                               fontSize: 18,
                               fontWeight: FontWeight.w800,
                             ),
@@ -421,10 +416,10 @@ class _LegendList extends StatelessWidget {
     final visibleSlices = slices.take(4).toList();
 
     if (visibleSlices.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No expenses yet',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
         ),
       );
     }
@@ -450,8 +445,8 @@ class _LegendList extends StatelessWidget {
                     slice.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AnalyticsScreen._ink,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
@@ -459,8 +454,8 @@ class _LegendList extends StatelessWidget {
                 ),
                 Text(
                   slice.percentLabel(totalExpensePaisa),
-                  style: const TextStyle(
-                    color: Color(0xFF6B7470),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -480,24 +475,24 @@ class _TrendPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EEEB)),
+        border: Border.all(color: colorScheme.outline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Last 7 Days',
-            style: TextStyle(
-              color: AnalyticsScreen._ink,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
           ),
           const SizedBox(height: 16),
           SizedBox(height: 112, child: _TrendBars(points: points)),
@@ -537,8 +532,8 @@ class _TrendBars extends StatelessWidget {
                           width: 18,
                           decoration: BoxDecoration(
                             color: point.paisa == 0
-                                ? const Color(0xFFE8EEEB)
-                                : AnalyticsScreen._accent,
+                                ? Theme.of(context).colorScheme.outline
+                                : Theme.of(context).colorScheme.primary,
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
@@ -548,8 +543,8 @@ class _TrendBars extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     point.label,
-                    style: const TextStyle(
-                      color: Color(0xFF7A8580),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -575,9 +570,9 @@ class _CategoryBreakdownRow extends StatelessWidget {
       height: 76,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE8EEEB)),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
       child: Row(
         children: [
@@ -585,7 +580,7 @@ class _CategoryBreakdownRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-                  color: slice.color.withValues(alpha: 0.14),
+              color: slice.color.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(slice.icon, color: slice.color, size: 22),
@@ -613,7 +608,7 @@ class _CategoryBreakdownRow extends StatelessWidget {
                     minHeight: 5,
                     value: maxPaisa == 0 ? 0 : slice.paisa / maxPaisa,
                     color: slice.color,
-                    backgroundColor: const Color(0xFFE8EEEB),
+                    backgroundColor: Theme.of(context).colorScheme.outline,
                   ),
                 ),
               ],
@@ -622,8 +617,8 @@ class _CategoryBreakdownRow extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             MoneyUtils.formatPaisa(slice.paisa),
-            style: const TextStyle(
-              color: AnalyticsScreen._ink,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
               fontSize: 13,
               fontWeight: FontWeight.w800,
             ),
@@ -636,8 +631,9 @@ class _CategoryBreakdownRow extends StatelessWidget {
 
 class _DonutChartPainter extends CustomPainter {
   final List<_CategorySlice> slices;
+  final Color backgroundColor;
 
-  const _DonutChartPainter({required this.slices});
+  const _DonutChartPainter({required this.slices, required this.backgroundColor});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -648,7 +644,7 @@ class _DonutChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.butt
-      ..color = const Color(0xFFE8EEEB);
+      ..color = backgroundColor;
 
     canvas.drawArc(rect.deflate(strokeWidth), 0, math.pi * 2, false, basePaint);
 

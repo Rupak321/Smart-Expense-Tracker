@@ -3,12 +3,29 @@ class MoneyUtils {
 
   static int parseToPaisa(String input) {
     final normalized = input.trim().replaceAll(',', '');
-    final amount = double.parse(normalized);
-    return (amount * 100).round();
+    final isNegative = normalized.startsWith('-');
+    final raw = normalized.replaceFirst('-', '');
+
+    final parts = raw.split('.');
+    final whole = int.tryParse(parts[0]) ?? 0;
+    final fraction = parts.length > 1 ? parts[1].padRight(2, '0') : '00';
+    final cents = int.tryParse(fraction.substring(0, 2)) ?? 0;
+    final paisa = whole * 100 + cents;
+
+    return isNegative ? -paisa : paisa;
   }
 
   static int amountToPaisa(double amount) {
-    return (amount * 100).round();
+    final normalized = amount.toStringAsFixed(2);
+    final isNegative = normalized.startsWith('-');
+    final raw = normalized.replaceFirst('-', '');
+    final parts = raw.split('.');
+    final whole = int.tryParse(parts[0]) ?? 0;
+    final fraction = parts.length > 1 ? parts[1].padRight(2, '0') : '00';
+    final cents = int.tryParse(fraction.substring(0, 2)) ?? 0;
+    final paisa = whole * 100 + cents;
+
+    return isNegative ? -paisa : paisa;
   }
 
   static double paisaToAmount(int paisa) {

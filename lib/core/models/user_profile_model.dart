@@ -22,6 +22,9 @@ class UserProfileModel extends HiveObject {
   @HiveField(5)
   final DateTime updatedAt;
 
+  @HiveField(6)
+  final String? profileImagePath;
+
   UserProfileModel({
     required this.name,
     required this.phoneNumber,
@@ -29,5 +32,6 @@ class UserProfileModel extends HiveObject {
     required this.email,
     required this.occupation,
     required this.updatedAt,
+    this.profileImagePath,
   });
 }

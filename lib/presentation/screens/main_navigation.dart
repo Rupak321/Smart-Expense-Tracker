@@ -6,17 +6,27 @@ import 'home_screen.dart';
 import '../widgets/add_transaction_sheet.dart';
 
 class MainNavigation extends StatefulWidget {
-  const MainNavigation({super.key});
+  final int initialIndex;
+
+  const MainNavigation({super.key, this.initialIndex = 0});
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final screens = [
       const HomeScreen(),
       const AllExpensesScreen(),
@@ -25,7 +35,7 @@ class _MainNavigationState extends State<MainNavigation> {
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: IndexedStack(index: _selectedIndex, children: screens),
       ),
@@ -35,15 +45,15 @@ class _MainNavigationState extends State<MainNavigation> {
             context: context,
             isScrollControlled:
                 true, // Ensures layout pushes upward smoothly over the software panel keyboard
-            backgroundColor: Colors.white,
-            shape: const RoundedRectangleBorder(
+            backgroundColor: colorScheme.surface,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
             builder: (context) => const AddTransactionSheet(),
           );
         },
-        backgroundColor: const Color(0xFF2A9D8F),
-        foregroundColor: Colors.white,
+        backgroundColor: colorScheme.primary,
+        foregroundColor: colorScheme.onPrimary,
         shape: const CircleBorder(),
         child: const Icon(Icons.add, size: 28),
       ),
@@ -51,7 +61,7 @@ class _MainNavigationState extends State<MainNavigation> {
       bottomNavigationBar: BottomAppBar(
         shape: const CircularNotchedRectangle(),
         notchMargin: 8,
-        color: Colors.white,
+        color: colorScheme.surface,
         elevation: 8,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -75,11 +85,12 @@ class _MainNavigationState extends State<MainNavigation> {
   /// Builds unified responsive nav system selectors mapping dynamic state contexts
   Widget _buildNavItem(IconData icon, int index) {
     final isSelected = _selectedIndex == index;
+    final colorScheme = Theme.of(context).colorScheme;
     return IconButton(
       onPressed: () => setState(() => _selectedIndex = index),
       icon: Icon(
         icon,
-        color: isSelected ? const Color(0xFF2A9D8F) : Colors.grey.shade400,
+        color: isSelected ? colorScheme.primary : colorScheme.onSurfaceVariant,
         size: 26,
       ),
     );

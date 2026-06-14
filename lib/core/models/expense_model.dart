@@ -1,5 +1,7 @@
 import 'package:hive/hive.dart';
 
+import '../utils/money_utils.dart';
+
 part 'expense_model.g.dart'; 
 @HiveType(typeId: 0)
 class ExpenseModel extends HiveObject {
@@ -29,4 +31,6 @@ class ExpenseModel extends HiveObject {
     required this.date,
     required this.isExpense,
   });
+
+  int get amountPaisa => MoneyUtils.amountToPaisa(amount);
 }

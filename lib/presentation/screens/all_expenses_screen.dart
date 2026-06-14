@@ -23,31 +23,30 @@ class AllExpensesScreen extends StatelessWidget {
       stream: box.watch(),
       builder: (context, snapshot) {
         final transactions = _sortedTransactions(box);
-        final totalExpensePaisa = transactions
-            .where((transaction) => transaction.isExpense)
-            .fold(
-              0,
-              (total, transaction) =>
-                  total + MoneyUtils.amountToPaisa(transaction.amount),
-            );
+        final expenses = transactions.where((transaction) => transaction.isExpense).toList();
+        final expenseCount = expenses.length;
+        final totalExpensePaisa = expenses.fold(
+          0,
+          (total, transaction) => total + transaction.amountPaisa,
+        );
 
         return CustomScrollView(
           slivers: [
             const SliverToBoxAdapter(child: _Header()),
             SliverToBoxAdapter(
               child: _TotalCard(
-                count: transactions.length,
+                count: expenseCount,
                 total: MoneyUtils.formatPaisa(totalExpensePaisa),
               ),
             ),
-            if (transactions.isEmpty)
-              const SliverToBoxAdapter(
+            if (expenses.isEmpty)
+              SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(16, 40, 16, 170),
                   child: Center(
                     child: Text(
-                      'No transactions yet',
-                      style: TextStyle(color: Colors.grey, fontSize: 14),
+                      'No expenses yet',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
                     ),
                   ),
                 ),
@@ -57,8 +56,8 @@ class AllExpensesScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 170),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate((context, index) {
-                    final transaction = transactions[index];
-                    final sign = transaction.isExpense ? '-' : '+';
+                    final transaction = expenses[index];
+                    const sign = '-';
 
                     return Dismissible(
                       key: ValueKey(transaction.id),
@@ -79,7 +78,7 @@ class AllExpensesScreen extends StatelessWidget {
                         onTap: () => _confirmDelete(context, transaction),
                       ),
                     );
-                  }, childCount: transactions.length),
+                  }, childCount: expenses.length),
                 ),
               ),
           ],
@@ -112,6 +111,8 @@ class AllExpensesScreen extends StatelessWidget {
         return Icons.flight_takeoff_rounded;
       case 'Shopping':
         return Icons.shopping_bag_rounded;
+      case 'Bills':
+        return Icons.receipt_long_rounded;
       default:
         return Icons.receipt_long_rounded;
     }
@@ -134,7 +135,7 @@ class AllExpensesScreen extends StatelessWidget {
             ),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
               child: const Text('Delete'),
             ),
           ],
@@ -170,26 +171,26 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Text(
               'All Expenses',
-              style: TextStyle(
-                color: AllExpensesScreen._ink,
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 24,
+                  ),
             ),
           ),
           Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AllExpensesScreen._accent.withValues(alpha: 0.12),
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.receipt_long_rounded,
-              color: AllExpensesScreen._accent,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
         ],
@@ -207,11 +208,11 @@ class _DeleteBackground extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
-        color: const Color(0xFFE63946),
+        color: Theme.of(context).colorScheme.error,
         borderRadius: BorderRadius.circular(14),
       ),
       alignment: Alignment.centerRight,
-      child: const Icon(Icons.delete_rounded, color: Colors.white),
+      child: Icon(Icons.delete_rounded, color: Theme.of(context).colorScheme.onError),
     );
   }
 }
@@ -228,13 +229,13 @@ class _TotalCard extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE8EEEB)),
+        border: Border.all(color: Theme.of(context).colorScheme.outline),
       ),
       child: Row(
         children: [
-          const Icon(Icons.trending_down_rounded, color: Color(0xFFE63946)),
+          Icon(Icons.trending_down_rounded, color: Theme.of(context).colorScheme.error),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -242,17 +243,17 @@ class _TotalCard extends StatelessWidget {
               children: [
                 Text(
                   total,
-                  style: const TextStyle(
-                    color: AllExpensesScreen._ink,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '$count transaction${count == 1 ? '' : 's'} recorded',
-                  style: const TextStyle(
-                    color: Color(0xFF6B7470),
+                  '$count expense${count == 1 ? '' : 's'} recorded',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),

@@ -20,11 +20,20 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
   bool _isExpense = true; // Toggle state: true = Expense, false = Income
   bool _isSaving = false;
 
-  final List<String> _categories = [
+  static const List<String> _expenseCategories = [
     'Food',
     'Travel',
     'Shopping',
+    'Bills',
+    'Other',
+  ];
+
+  static const List<String> _incomeCategories = [
     'Salary',
+    'Freelance',
+    'Business',
+    'Investments',
+    'Gifts',
     'Other',
   ];
 
@@ -75,8 +84,10 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
 
   @override
   Widget build(BuildContext context) {
-    // Media query adjustment ensures the sheet shifts up smoothly above the on-screen keyboard
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final categories = _isExpense ? _expenseCategories : _incomeCategories;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -95,16 +106,16 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Add Transaction',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A2E),
+                      color: colorScheme.onSurface,
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(Icons.close, color: colorScheme.onSurface),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -118,19 +129,17 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                     child: ChoiceChip(
                       label: const Center(child: Text('Expense')),
                       selected: _isExpense == true,
-                      selectedColor: const Color(
-                        0xFFE63946,
-                      ).withValues(alpha: 0.15),
+                      selectedColor: colorScheme.error.withValues(alpha: 0.15),
                       labelStyle: TextStyle(
                         color: _isExpense
-                            ? const Color(0xFFE63946)
-                            : Colors.black,
+                            ? colorScheme.error
+                            : colorScheme.onSurface,
                         fontWeight: _isExpense
                             ? FontWeight.bold
                             : FontWeight.normal,
                       ),
                       showCheckmark: false,
-                      onSelected: (val) => setState(() => _isExpense = true),
+                      onSelected: (val) => _setTransactionType(isExpense: true),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -138,19 +147,17 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                     child: ChoiceChip(
                       label: const Center(child: Text('Income')),
                       selected: _isExpense == false,
-                      selectedColor: const Color(
-                        0xFF2A9D8F,
-                      ).withValues(alpha: 0.15),
+                      selectedColor: colorScheme.primary.withValues(alpha: 0.15),
                       labelStyle: TextStyle(
                         color: !_isExpense
-                            ? const Color(0xFF2A9D8F)
-                            : Colors.black,
+                            ? colorScheme.primary
+                            : colorScheme.onSurface,
                         fontWeight: !_isExpense
                             ? FontWeight.bold
                             : FontWeight.normal,
                       ),
                       showCheckmark: false,
-                      onSelected: (val) => setState(() => _isExpense = false),
+                      onSelected: (val) => _setTransactionType(isExpense: false),
                     ),
                   ),
                 ],
@@ -162,7 +169,9 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                 controller: _titleController,
                 decoration: InputDecoration(
                   labelText: 'Title',
-                  hintText: 'e.g., Grocery Shopping',
+                  hintText: _isExpense
+                      ? 'e.g., Grocery Shopping'
+                      : 'e.g., Monthly Salary',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -193,7 +202,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
               const SizedBox(height: 16),
 
               _CategoryPicker(
-                categories: _categories,
+                categories: categories,
                 selectedCategory: _selectedCategory,
                 iconForCategory: _categoryIcon,
                 onChanged: (category) {
@@ -208,8 +217,8 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
               ElevatedButton(
                 onPressed: _isSaving ? null : _saveTransaction,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2A9D8F),
-                  foregroundColor: Colors.white,
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -230,6 +239,18 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
     );
   }
 
+  void _setTransactionType({required bool isExpense}) {
+    if (_isExpense == isExpense) {
+      return;
+    }
+
+    final nextCategories = isExpense ? _expenseCategories : _incomeCategories;
+    setState(() {
+      _isExpense = isExpense;
+      _selectedCategory = nextCategories.first;
+    });
+  }
+
   IconData _categoryIcon(String category) {
     switch (category) {
       case 'Food':
@@ -238,8 +259,18 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
         return Icons.flight_takeoff_rounded;
       case 'Shopping':
         return Icons.shopping_bag_rounded;
+      case 'Bills':
+        return Icons.receipt_long_rounded;
       case 'Salary':
         return Icons.monetization_on_rounded;
+      case 'Freelance':
+        return Icons.laptop_mac_rounded;
+      case 'Business':
+        return Icons.storefront_rounded;
+      case 'Investments':
+        return Icons.trending_up_rounded;
+      case 'Gifts':
+        return Icons.card_giftcard_rounded;
       default:
         return Icons.receipt_long_rounded;
     }
@@ -264,12 +295,12 @@ class _CategoryPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 2, bottom: 8),
-          child: Text(
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 8),
+            child: Text(
             'Category',
             style: TextStyle(
-              color: Color(0xFF5F6B67),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
@@ -319,24 +350,25 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? const Color(0xFF2A9D8F) : const Color(0xFF5F6B67);
+    final colorScheme = Theme.of(context).colorScheme;
+    final color = selected ? colorScheme.primary : colorScheme.onSurfaceVariant;
 
     return Material(
         color: selected
-          ? const Color(0xFF2A9D8F).withValues(alpha: 0.12)
-          : Colors.white,
+          ? colorScheme.primary.withValues(alpha: 0.12)
+          : colorScheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: selected ? const Color(0xFF2A9D8F) : const Color(0xFFD8DEDB),
+          color: selected ? colorScheme.primary : colorScheme.outline,
           width: selected ? 1.4 : 1,
         ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        splashColor: const Color(0xFF2A9D8F).withValues(alpha: 0.10),
-        highlightColor: const Color(0xFF2A9D8F).withValues(alpha: 0.06),
+        splashColor: colorScheme.primary.withValues(alpha: 0.10),
+        highlightColor: colorScheme.primary.withValues(alpha: 0.06),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -349,17 +381,17 @@ class _CategoryTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: selected ? const Color(0xFF1A1A2E) : color,
+                    color: selected ? colorScheme.onSurface : color,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),
               ),
               if (selected)
-                const Icon(
+                Icon(
                   Icons.check_circle_rounded,
                   size: 18,
-                  color: Color(0xFF2A9D8F),
+                  color: colorScheme.primary,
                 ),
             ],
           ),

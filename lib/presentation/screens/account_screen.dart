@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/models/user_profile_model.dart';
 import '../../../core/theme/app_theme_controller.dart';
@@ -23,6 +26,8 @@ class _AccountScreenState extends State<AccountScreen> {
 
   bool _isSaving = false;
   bool _loadedProfile = false;
+  String? _profileImagePath;
+  final ImagePicker _imagePicker = ImagePicker();
 
   Box<UserProfileModel> get _box => Hive.box<UserProfileModel>('user_profile');
 
@@ -54,6 +59,7 @@ class _AccountScreenState extends State<AccountScreen> {
     _addressController.text = profile?.address ?? '';
     _emailController.text = profile?.email ?? '';
     _occupationController.text = profile?.occupation ?? '';
+    _profileImagePath = profile?.profileImagePath;
     _loadedProfile = true;
   }
 
@@ -71,6 +77,7 @@ class _AccountScreenState extends State<AccountScreen> {
       email: _emailController.text.trim(),
       occupation: _occupationController.text.trim(),
       updatedAt: DateTime.now(),
+      profileImagePath: _profileImagePath,
     );
 
     try {
@@ -99,7 +106,11 @@ class _AccountScreenState extends State<AccountScreen> {
             stream: _box.watch(key: 'primary'),
             builder: (context, snapshot) {
               final profile = _box.get('primary');
-              return _ProfileSummary(profile: profile);
+              return _ProfileSummary(
+                profile: profile,
+                profileImagePath: _profileImagePath,
+                onAvatarTap: _pickProfileImage,
+              );
             },
           ),
         ),
@@ -260,12 +271,28 @@ class _AccountScreenState extends State<AccountScreen> {
   String? _emailValidator(String? value) {
     final trimmed = value?.trim() ?? '';
     if (trimmed.isEmpty) {
-      return null;
+      return 'Email is required';
     }
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(trimmed)) {
-      return 'Enter a valid email';
+      return 'Enter a valid email address';
     }
     return null;
+  }
+
+  Future<void> _pickProfileImage() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 80,
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _profileImagePath = picked.path;
+    });
   }
 
   void _showSettingMessage(BuildContext context, String message) {
@@ -337,8 +364,14 @@ class _AccountHeader extends StatelessWidget {
 
 class _ProfileSummary extends StatelessWidget {
   final UserProfileModel? profile;
+  final String? profileImagePath;
+  final VoidCallback? onAvatarTap;
 
-  const _ProfileSummary({required this.profile});
+  const _ProfileSummary({
+    required this.profile,
+    this.profileImagePath,
+    this.onAvatarTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -371,22 +404,58 @@ class _ProfileSummary extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.18),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                initial,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
+          GestureDetector(
+            onTap: onAvatarTap,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.18),
+                    shape: BoxShape.circle,
+                    image: (profileImagePath ?? profile?.profileImagePath) != null &&
+                            (profileImagePath ?? profile?.profileImagePath)!.isNotEmpty
+                        ? DecorationImage(
+                            image: FileImage(File(profileImagePath ?? profile!.profileImagePath!)),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
                 ),
-              ),
+                if ((profileImagePath ?? profile?.profileImagePath) == null ||
+                    (profileImagePath ?? profile?.profileImagePath)!.isEmpty)
+                  Text(
+                    initial,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.edit,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 14),

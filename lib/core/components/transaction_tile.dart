@@ -20,40 +20,41 @@ class TransactionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
       ),
       child: ListTile(
         onTap: onTap,
         leading: Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            decoration: BoxDecoration(
+            color: colorScheme.primary.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(icon, color: const Color(0xFF2A9D8F), size: 22),
+          child: Icon(icon, color: colorScheme.primary, size: 22),
         ),
         title: Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 14,
-            color: Color(0xFF1A1A2E),
+            color: colorScheme.onSurface,
           ),
         ),
         subtitle: Text(
           category,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
         ),
         trailing: Text(
           amount,
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 14,
-            color: isExpense ? const Color(0xFFE63946) : const Color(0xFF2A9D8F),
+            color: isExpense ? const Color(0xFFE63946) : colorScheme.primary,
           ),
         ),
       ),

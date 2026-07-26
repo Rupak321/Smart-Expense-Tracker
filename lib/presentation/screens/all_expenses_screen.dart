@@ -1,59 +1,53 @@
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 
 import '../../../core/components/transaction_tile.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../services/user_data_service.dart';
 
 class AllExpensesScreen extends StatelessWidget {
   const AllExpensesScreen({super.key});
 
-  static const _accent = Color(0xFF2A9D8F);
-  static const _ink = Color(0xFF1A1A2E);
-
   @override
   Widget build(BuildContext context) {
-    final box = Hive.isBoxOpen('transactions') ? Hive.box<ExpenseModel>('transactions') : null;
-
-    if (box == null) {
-      return const Center(child: Text('No transactions available'));
-    }
-
-    return StreamBuilder<BoxEvent>(
-      stream: box.watch(),
+    return StreamBuilder<List<ExpenseModel>>(
+      stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
-        final transactions = _sortedTransactions(box);
-        final expenses = transactions.where((transaction) => transaction.isExpense).toList();
+        final transactions = _sortedTransactions(
+          snapshot.data ?? const <ExpenseModel>[],
+        );
+        final expenses = transactions
+            .where((transaction) => transaction.isExpense)
+            .toList();
         final expenseCount = expenses.length;
         final totalExpensePaisa = expenses.fold(
           0,
           (total, transaction) => total + transaction.amountPaisa,
         );
 
-        return CustomScrollView(
-          slivers: [
-            const SliverToBoxAdapter(child: _Header()),
-            SliverToBoxAdapter(
-              child: _TotalCard(
+        return Scaffold(
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onSurface),
+          ),
+          body: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+              child: _Header(
                 count: expenseCount,
                 total: MoneyUtils.formatPaisa(totalExpensePaisa),
               ),
             ),
+            if (expenses.isNotEmpty)
+              SliverToBoxAdapter(child: _SectionHeader(count: expenseCount)),
             if (expenses.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, 40, 16, 170),
-                  child: Center(
-                    child: Text(
-                      'No expenses yet',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
-                    ),
-                  ),
-                ),
-              )
+              SliverToBoxAdapter(child: const _EmptyExpensesState())
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 170),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final transaction = expenses[index];
@@ -82,19 +76,16 @@ class AllExpensesScreen extends StatelessWidget {
                 ),
               ),
           ],
+        ),
         );
       },
     );
   }
 
-  List<ExpenseModel> _sortedTransactions(Box<ExpenseModel>? box) {
-    if (box == null) {
-      return [];
-    }
-
-    final transactions = box.values.toList();
-    transactions.sort((first, second) => second.date.compareTo(first.date));
-    return transactions;
+  List<ExpenseModel> _sortedTransactions(List<ExpenseModel> transactions) {
+    final sorted = List<ExpenseModel>.from(transactions);
+    sorted.sort((first, second) => second.date.compareTo(first.date));
+    return sorted;
   }
 
   static String _dateLabel(DateTime date, String category) {
@@ -113,8 +104,12 @@ class AllExpensesScreen extends StatelessWidget {
         return Icons.shopping_bag_rounded;
       case 'Bills':
         return Icons.receipt_long_rounded;
+      case 'Restaurant':
+        return Icons.restaurant_menu_rounded;
+      case 'Other':
+        return Icons.category_rounded;
       default:
-        return Icons.receipt_long_rounded;
+        return Icons.payments_rounded;
     }
   }
 
@@ -135,7 +130,9 @@ class AllExpensesScreen extends StatelessWidget {
             ),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
               child: const Text('Delete'),
             ),
           ],
@@ -147,10 +144,7 @@ class AllExpensesScreen extends StatelessWidget {
       return false;
     }
 
-    await transaction.delete();
-    if (Hive.isBoxOpen('transactions')) {
-      await Hive.box<ExpenseModel>('transactions').flush();
-    }
+    await UserDataService.deleteTransaction(transaction.id);
 
     if (context.mounted) {
       ScaffoldMessenger.of(
@@ -163,34 +157,193 @@ class AllExpensesScreen extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header();
+  final int count;
+  final String total;
+
+  const _Header({required this.count, required this.total});
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Expenses',
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.receipt_long_rounded,
+                  color: colorScheme.primary,
+                  size: 21,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: colorScheme.primary,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: colorScheme.onPrimary.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.trending_down_rounded,
+                    color: colorScheme.onPrimary,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Total spent',
+                        style: TextStyle(
+                          color: colorScheme.onPrimary.withValues(alpha: 0.78),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        total,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colorScheme.onPrimary,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
+                          height: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    color: colorScheme.onPrimary,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final int count;
+
+  const _SectionHeader({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              'All Expenses',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 24,
-                  ),
+              'Recent expenses',
+              style: TextStyle(
+                color: colorScheme.onSurface,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
+          Text(
+            '$count item${count == 1 ? '' : 's'}',
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
-            child: Icon(
-              Icons.receipt_long_rounded,
-              color: Theme.of(context).colorScheme.primary,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyExpensesState extends StatelessWidget {
+  const _EmptyExpensesState();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 170),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outline.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: colorScheme.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.receipt_long_rounded, color: colorScheme.primary),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'No expenses yet',
+            style: TextStyle(
+              color: colorScheme.onSurface,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'New expense records will appear here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -205,63 +358,16 @@ class _DeleteBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 18),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.error,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
       ),
       alignment: Alignment.centerRight,
-      child: Icon(Icons.delete_rounded, color: Theme.of(context).colorScheme.onError),
-    );
-  }
-}
-
-class _TotalCard extends StatelessWidget {
-  final int count;
-  final String total;
-
-  const _TotalCard({required this.count, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.trending_down_rounded, color: Theme.of(context).colorScheme.error),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  total,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$count expense${count == 1 ? '' : 's'} recorded',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+      child: Icon(
+        Icons.delete_rounded,
+        color: Theme.of(context).colorScheme.onError,
       ),
     );
   }

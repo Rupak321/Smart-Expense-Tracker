@@ -1,10 +1,14 @@
 import 'dart:math' as math;
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../core/models/expense_model.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../services/user_data_service.dart';
+import 'all_expenses_screen.dart';
 
 class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
@@ -14,21 +18,16 @@ class AnalyticsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final box = Hive.isBoxOpen('transactions') ? Hive.box<ExpenseModel>('transactions') : null;
-
-    if (box == null) {
-      return const Center(child: Text('No transactions available'));
-    }
-
-    return StreamBuilder<BoxEvent>(
-      stream: box.watch(),
+    return StreamBuilder<List<ExpenseModel>>(
+      stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
-        final transactions = _sortedTransactions(box);
+        final transactions = _sortedTransactions(snapshot.data ?? const <ExpenseModel>[]);
         final expenses = transactions.where((transaction) => transaction.isExpense).toList();
         final incomePaisa = _totalPaisa(transactions.where((transaction) => !transaction.isExpense));
         final expensePaisa = _totalPaisa(expenses);
         final categorySlices = _buildCategorySlices(expenses);
-        final trend = _buildRecentTrend(expenses);
+        final sevenDayTrend = _buildRecentTrend(expenses, dayCount: 7);
+        final thirtyDayTrend = _buildRecentTrend(expenses, dayCount: 30);
 
         return CustomScrollView(
           slivers: [
@@ -37,6 +36,11 @@ class AnalyticsScreen extends StatelessWidget {
               child: _SummaryBand(
                 incomePaisa: incomePaisa,
                 expensePaisa: expensePaisa,
+                onSpentTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AllExpensesScreen(),
+                  ),
+                ),
               ),
             ),
             SliverToBoxAdapter(
@@ -45,7 +49,12 @@ class AnalyticsScreen extends StatelessWidget {
                 slices: categorySlices,
               ),
             ),
-            SliverToBoxAdapter(child: _TrendPanel(points: trend)),
+            SliverToBoxAdapter(
+              child: _TrendPanel(
+                sevenDayPoints: sevenDayTrend,
+                thirtyDayPoints: thirtyDayTrend,
+              ),
+            ),
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -91,14 +100,10 @@ class AnalyticsScreen extends StatelessWidget {
     );
   }
 
-  List<ExpenseModel> _sortedTransactions(Box<ExpenseModel>? box) {
-    if (box == null) {
-      return [];
-    }
-
-    final transactions = box.values.toList();
-    transactions.sort((first, second) => second.date.compareTo(first.date));
-    return transactions;
+  List<ExpenseModel> _sortedTransactions(List<ExpenseModel> transactions) {
+    final sorted = List<ExpenseModel>.from(transactions);
+    sorted.sort((first, second) => second.date.compareTo(first.date));
+    return sorted;
   }
 
   int _totalPaisa(Iterable<ExpenseModel> transactions) {
@@ -118,19 +123,32 @@ class AnalyticsScreen extends StatelessWidget {
       );
     }
 
-    final colors = <String, Color>{
-      'Food': const Color(0xFFE76F51),
-      'Travel': const Color(0xFF457B9D),
-      'Shopping': const Color(0xFFE9C46A),
-      'Bills': const Color(0xFF2A9D8F),
-      'Other': const Color(0xFF7C6AAB),
-    };
+    Color getColorForCategory(String category) {
+      final lower = category.toLowerCase();
+      if (lower.contains('food') || lower.contains('restaurant')) return const Color(0xFFE76F51);
+      if (lower.contains('travel') || lower.contains('transport')) return const Color(0xFF457B9D);
+      if (lower.contains('shopping') || lower.contains('clothes')) return const Color(0xFFE9C46A);
+      if (lower.contains('bill') || lower.contains('utilit')) return const Color(0xFF2A9D8F);
+      if (lower.contains('health') || lower.contains('medic')) return const Color(0xFFE63946);
+      if (lower.contains('entertain') || lower.contains('movie')) return const Color(0xFF9B5DE5);
+      
+      // Deterministic fallback color based on string hash
+      final colors = [
+        const Color(0xFFF4A261),
+        const Color(0xFF264653),
+        const Color(0xFF00B4D8),
+        const Color(0xFF8338EC),
+        const Color(0xFFFF006E),
+        const Color(0xFF38B000),
+      ];
+      return colors[category.hashCode.abs() % colors.length];
+    }
 
     final slices = totals.entries.map((entry) {
       return _CategorySlice(
         label: entry.key,
         paisa: entry.value,
-        color: colors[entry.key] ?? _accent,
+        color: getColorForCategory(entry.key),
         icon: _iconForCategory(entry.key),
       );
     }).toList();
@@ -139,10 +157,13 @@ class AnalyticsScreen extends StatelessWidget {
     return slices;
   }
 
-  List<_TrendPoint> _buildRecentTrend(List<ExpenseModel> expenses) {
+  List<_TrendPoint> _buildRecentTrend(
+    List<ExpenseModel> expenses, {
+    required int dayCount,
+  }) {
     final today = DateTime.now();
-    final days = List.generate(7, (index) {
-      final day = today.subtract(Duration(days: 6 - index));
+    final days = List.generate(dayCount, (index) {
+      final day = today.subtract(Duration(days: dayCount - 1 - index));
       return DateTime(day.year, day.month, day.day);
     });
     final totals = {for (final day in days) day: 0};
@@ -159,7 +180,10 @@ class AnalyticsScreen extends StatelessWidget {
     }
 
     return days.map((day) {
-      return _TrendPoint(label: _shortDay(day), paisa: totals[day] ?? 0);
+      return _TrendPoint(
+        label: dayCount == 7 ? _shortDay(day) : day.day.toString(),
+        paisa: totals[day] ?? 0,
+      );
     }).toList();
   }
 
@@ -169,18 +193,406 @@ class AnalyticsScreen extends StatelessWidget {
   }
 
   IconData _iconForCategory(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant_rounded;
-      case 'Travel':
-        return Icons.flight_takeoff_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Bills':
-        return Icons.receipt_long_rounded;
-      default:
-        return Icons.receipt_long_rounded;
+    final lower = category.toLowerCase();
+    if (lower.contains('food') || lower.contains('restaurant') || lower.contains('grocer')) return Icons.restaurant_rounded;
+    if (lower.contains('shopping') || lower.contains('clothes') || lower.contains('electronics')) return Icons.shopping_bag_rounded;
+    if (lower.contains('travel') || lower.contains('transport')) return Icons.flight_takeoff_rounded;
+    if (lower.contains('bill') || lower.contains('utilit')) return Icons.receipt_long_rounded;
+    if (lower.contains('salary') || lower.contains('income') || lower.contains('freelance') || lower.contains('business')) return Icons.attach_money_rounded;
+    if (lower.contains('invest')) return Icons.trending_up_rounded;
+    if (lower.contains('gift')) return Icons.card_giftcard_rounded;
+    if (lower.contains('entertain') || lower.contains('movie')) return Icons.movie_rounded;
+    if (lower.contains('health') || lower.contains('medic')) return Icons.medical_services_rounded;
+    return Icons.category_rounded;
+  }
+}
+
+class _FinancialAssistantPanel extends StatefulWidget {
+  final List<ExpenseModel> transactions;
+  final int expensePaisa;
+  final int incomePaisa;
+  final List<_CategorySlice> categorySlices;
+
+  const _FinancialAssistantPanel({
+    required this.transactions,
+    required this.expensePaisa,
+    required this.incomePaisa,
+    required this.categorySlices,
+  });
+
+  @override
+  State<_FinancialAssistantPanel> createState() =>
+      _FinancialAssistantPanelState();
+}
+
+class _FinancialAssistantPanelState extends State<_FinancialAssistantPanel> {
+  static const _apiKey = String.fromEnvironment(
+    'GROQ_API_KEY',
+    defaultValue: '',
+  );
+  static const _model = String.fromEnvironment(
+    'GROQ_MODEL',
+    defaultValue: 'llama-3.1-8b-instant',
+  );
+
+  final _questionController = TextEditingController();
+  String? _answer;
+  String? _error;
+  var _isLoading = false;
+
+  bool get _hasGroqApiKey => _apiKey.startsWith('gsk_');
+
+  @override
+  void dispose() {
+    _questionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _askAssistant() async {
+    final question = _questionController.text.trim();
+    if (question.isEmpty || _isLoading) {
+      return;
     }
+
+    if (!_hasGroqApiKey) {
+      setState(() {
+        _error = 'Add a valid GROQ_API_KEY to enable AI responses.';
+        _answer = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+      _answer = null;
+    });
+
+    try {
+      final text = await _requestGroq(question);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _answer = text.isNotEmpty
+            ? text
+            : 'I could not generate a report for this question.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = _friendlyGroqError(error);
+        _answer = null;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _useSuggestion(String question) {
+    _questionController.text = question;
+    _questionController.selection = TextSelection.fromPosition(
+      TextPosition(offset: _questionController.text.length),
+    );
+  }
+
+  Map<String, String> get _groqHeaders {
+    return {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'SmartExpense/1.0',
+      'Authorization': 'Bearer $_apiKey',
+    };
+  }
+
+  Future<String> _requestGroq(String question) async {
+    final payload = jsonEncode({
+      'model': _model,
+      'messages': [
+        {
+          'role': 'system',
+          'content':
+              'You are a smart, witty, and friendly financial companion (a "financial friend"). You have access to the user\'s financial snapshot, but DO NOT output a full report unless they explicitly ask for one or ask a question about their finances. If they just say "hi" or make small talk, respond casually, warmly, and playfully like a friend. When they DO ask for financial advice or a report, be highly analytical, point out money leaks, and use rich Markdown formatting (bolding, headers, bullet points, emojis). Always give highly specific, actionable advice based on their data. Keep it conversational, fun, and deeply insightful. Never be dull or generic.',
+        },
+        {
+          'role': 'user',
+          'content': _buildPrompt(question),
+        },
+      ],
+      'temperature': 0.4,
+      'max_tokens': 700,
+    });
+
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final response = await http
+            .post(
+              Uri.https('api.groq.com', '/openai/v1/chat/completions'),
+              headers: _groqHeaders,
+              body: payload,
+            )
+            .timeout(const Duration(seconds: 35));
+
+        final data = _decodeJsonObject(response.body);
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception(_groqErrorMessage(data, response.statusCode));
+        }
+
+        return _extractGroqText(data);
+      } catch (error) {
+        lastError = error;
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 700));
+        }
+      }
+    }
+
+    throw Exception(lastError ?? 'Groq request failed.');
+  }
+
+  Map<String, dynamic> _decodeJsonObject(String body) {
+    final decoded = jsonDecode(body);
+    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+  }
+
+  String _groqErrorMessage(Map<String, dynamic> data, int statusCode) {
+    final error = data['error'];
+    if (error is Map) {
+      final message = error['message']?.toString();
+      if (message?.isNotEmpty == true) {
+        return 'Groq HTTP $statusCode: $message';
+      }
+    }
+    return 'Groq HTTP $statusCode';
+  }
+
+  String _extractGroqText(Map<String, dynamic> data) {
+    final choices = data['choices'] as List<dynamic>?;
+    if (choices == null || choices.isEmpty) {
+      return '';
+    }
+
+    final firstChoice = choices.first;
+    if (firstChoice is! Map<String, dynamic>) {
+      return '';
+    }
+
+    final message = firstChoice['message'];
+    if (message is! Map<String, dynamic>) {
+      return '';
+    }
+
+    return message['content']?.toString().trim() ?? '';
+  }
+
+  String _friendlyGroqError(Object error) {
+    final details = error.toString().replaceFirst('Exception: ', '');
+    return 'Groq request failed. Check internet connection, then try again.\n\nDetails: $details';
+  }
+
+  String _buildPrompt(String question) {
+    final recent = widget.transactions.take(12).map((transaction) {
+      final type = transaction.isExpense ? 'expense' : 'income';
+      final date = transaction.date.toIso8601String().split('T').first;
+      return '- $type: ${transaction.title}, ${transaction.category}, ${MoneyUtils.formatPaisa(transaction.amountPaisa)}, $date';
+    }).join('\n');
+    final categories = widget.categorySlices.take(5).map((slice) {
+      return '- ${slice.label}: ${MoneyUtils.formatPaisa(slice.paisa)}';
+    }).join('\n');
+
+    return '''
+User question: $question
+
+Financial snapshot:
+- Total income: ${MoneyUtils.formatPaisa(widget.incomePaisa)}
+- Total expenses: ${MoneyUtils.formatPaisa(widget.expensePaisa)}
+- Balance: ${MoneyUtils.formatPaisa(widget.incomePaisa - widget.expensePaisa)}
+
+Top spending categories:
+${categories.isEmpty ? '- No expenses yet' : categories}
+
+Recent transactions:
+${recent.isEmpty ? '- No transactions yet' : recent}
+''';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  color: colorScheme.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'AI Financial Assistant',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          if (!_hasGroqApiKey) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Add a Groq API key at run time for AI-generated responses.',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _AssistantPromptChip(
+                label: 'Analyze my spending',
+                onTap: () => _useSuggestion(
+                  'Give me a brutally honest analysis of my recent spending and identify any money leaks.',
+                ),
+              ),
+              _AssistantPromptChip(
+                label: 'Generate weekly report',
+                onTap: () => _useSuggestion(
+                  'Generate a comprehensive weekly financial report with insights and emojis.',
+                ),
+              ),
+              _AssistantPromptChip(
+                label: 'Savings plan',
+                onTap: () => _useSuggestion(
+                  'Based strictly on my data, where can I cut costs to save 20% more this month?',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _questionController,
+            minLines: 1,
+            maxLines: 3,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _askAssistant(),
+            decoration: InputDecoration(
+              hintText: 'Ask for advice or a spending report',
+              suffixIcon: IconButton(
+                tooltip: 'Ask AI',
+                onPressed: _isLoading ? null : _askAssistant,
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+              ),
+            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: TextStyle(
+                color: colorScheme.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (_answer != null) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: MarkdownBody(
+                data: _answer!,
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                  h1: TextStyle(color: colorScheme.primary, fontSize: 18, fontWeight: FontWeight.bold),
+                  h2: TextStyle(color: colorScheme.primary, fontSize: 16, fontWeight: FontWeight.bold),
+                  h3: TextStyle(color: colorScheme.primary, fontSize: 15, fontWeight: FontWeight.bold),
+                  listBullet: TextStyle(color: colorScheme.primary, fontSize: 14),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantPromptChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _AssistantPromptChip({
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return ActionChip(
+      avatar: Icon(
+        Icons.bolt_rounded,
+        size: 16,
+        color: colorScheme.primary,
+      ),
+      label: Text(label),
+      labelStyle: TextStyle(
+        color: colorScheme.onSurface,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+      backgroundColor: colorScheme.primary.withValues(alpha: 0.08),
+      side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.18)),
+      onPressed: onTap,
+    );
   }
 }
 
@@ -224,8 +636,13 @@ class _Header extends StatelessWidget {
 class _SummaryBand extends StatelessWidget {
   final int incomePaisa;
   final int expensePaisa;
+  final VoidCallback onSpentTap;
 
-  const _SummaryBand({required this.incomePaisa, required this.expensePaisa});
+  const _SummaryBand({
+    required this.incomePaisa,
+    required this.expensePaisa,
+    required this.onSpentTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -245,11 +662,15 @@ class _SummaryBand extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: _MetricCard(
-              label: 'Spent',
-              amount: MoneyUtils.formatPaisa(expensePaisa),
-              icon: Icons.trending_down_rounded,
-              color: Theme.of(context).colorScheme.error,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onSpentTap,
+              child: _MetricCard(
+                label: 'Spent',
+                amount: MoneyUtils.formatPaisa(expensePaisa),
+                icon: Icons.trending_down_rounded,
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
           ),
         ],
@@ -468,94 +889,605 @@ class _LegendList extends StatelessWidget {
   }
 }
 
-class _TrendPanel extends StatelessWidget {
-  final List<_TrendPoint> points;
+class _TrendPanel extends StatefulWidget {
+  final List<_TrendPoint> sevenDayPoints;
+  final List<_TrendPoint> thirtyDayPoints;
 
-  const _TrendPanel({required this.points});
+  const _TrendPanel({
+    required this.sevenDayPoints,
+    required this.thirtyDayPoints,
+  });
+
+  @override
+  State<_TrendPanel> createState() => _TrendPanelState();
+}
+
+class _TrendPanelState extends State<_TrendPanel> {
+  var _selectedRange = _TrendRange.sevenDays;
+
+  List<_TrendPoint> get _points {
+    return _selectedRange == _TrendRange.sevenDays
+        ? widget.sevenDayPoints
+        : widget.thirtyDayPoints;
+  }
+
+  int get _dayCount {
+    return _selectedRange == _TrendRange.sevenDays ? 7 : 30;
+  }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final points = _points;
+    final totalPaisa = points.fold(0, (sum, point) => sum + point.paisa);
+    final changePaisa = points.isEmpty
+        ? 0
+        : points.last.paisa - points.first.paisa;
+    final changePercent = points.isEmpty || points.first.paisa == 0
+        ? 0.0
+        : changePaisa / points.first.paisa * 100;
+    final isIncrease = changePaisa >= 0;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
         color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colorScheme.outline),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Last 7 Days',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Last $_dayCount Days',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: colorScheme.onSurface,
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Expense trend',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    MoneyUtils.formatPaisa(totalPaisa),
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color:
+                          (isIncrease ? colorScheme.error : _TrendColors.green)
+                              .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isIncrease
+                              ? Icons.trending_up_rounded
+                              : Icons.trending_down_rounded,
+                          color:
+                              isIncrease ? colorScheme.error : _TrendColors.green,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${isIncrease ? '+' : ''}${changePercent.toStringAsFixed(1)}%',
+                          style: TextStyle(
+                            color: isIncrease ? colorScheme.error : _TrendColors.green,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          SizedBox(height: 112, child: _TrendBars(points: points)),
+          _TrendRangeSwitch(
+            selectedRange: _selectedRange,
+            onChanged: (range) {
+              setState(() {
+                _selectedRange = range;
+              });
+            },
+          ),
+          const SizedBox(height: 22),
+          TweenAnimationBuilder<double>(
+            key: ValueKey(
+              '$_dayCount-${points.map((point) => point.paisa).join(',')}',
+            ),
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 650),
+            curve: Curves.easeOutQuart,
+            builder: (context, progress, child) {
+              return SizedBox(
+                height: points.length > 7 ? 220 : 250,
+                child: _TrendLineChart(points: points, progress: progress),
+              );
+            },
+          ),
         ],
       ),
     );
   }
 }
 
-class _TrendBars extends StatelessWidget {
-  final List<_TrendPoint> points;
+enum _TrendRange { sevenDays, thirtyDays }
 
-  const _TrendBars({required this.points});
+class _TrendRangeSwitch extends StatelessWidget {
+  final _TrendRange selectedRange;
+  final ValueChanged<_TrendRange> onChanged;
+
+  const _TrendRangeSwitch({
+    required this.selectedRange,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 38,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        children: [
+          _TrendRangeOption(
+            label: '7 Days',
+            isSelected: selectedRange == _TrendRange.sevenDays,
+            onTap: () => onChanged(_TrendRange.sevenDays),
+          ),
+          _TrendRangeOption(
+            label: '30 Days',
+            isSelected: selectedRange == _TrendRange.thirtyDays,
+            onTap: () => onChanged(_TrendRange.thirtyDays),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+class _TrendRangeOption extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TrendRangeOption({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isSelected ? colorScheme.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrendLineChart extends StatelessWidget {
+  final List<_TrendPoint> points;
+  final double progress;
+
+  const _TrendLineChart({required this.points, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
+    final minValue = points.fold(
+      maxValue,
+      (min, point) => math.min(min, point.paisa),
+    );
+    final hasValues = maxValue > 0;
+    final labels = _axisLabels(minValue, maxValue);
+
+    return Column(
       children: [
-        for (final point in points)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: maxValue == 0
-                            ? 0.08
-                            : math.max(0.08, point.paisa / maxValue),
-                        child: Container(
-                          width: 18,
-                          decoration: BoxDecoration(
-                            color: point.paisa == 0
-                                ? Theme.of(context).colorScheme.outline
-                                : Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(8),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 64,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final label in labels)
+                      Text(
+                        hasValues ? _formatAxisPaisa(label) : 'Rs. 0',
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: CustomPaint(
+                  painter: _TrendLinePainter(
+                    points: points,
+                    progress: progress,
+                    lineColor: const Color(0xFFF6B900),
+                    gridColor: colorScheme.outline.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.only(left: 74),
+          child: points.length > 7
+              ? _SparseTrendLabels(
+                  labels: _sparseBottomLabels(),
+                  textColor: colorScheme.onSurfaceVariant,
+                )
+              : Row(
+                  children: [
+                    for (final point in points)
+                      Expanded(
+                        child: Text(
+                          point.label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
+                  ],
+                ),
+        ),
+        if (points.length <= 7) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 74),
+            child: Row(
+              children: [
+                for (var index = 0; index < points.length; index++)
+                  Expanded(
+                    child: _TrendChangeLabel(
+                      value: index == 0
+                          ? points[index].paisa
+                          : points[index].paisa - points[index - 1].paisa,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    point.label,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  List<int> _axisLabels(int minValue, int maxValue) {
+    if (maxValue == 0) {
+      return const [0, 0, 0, 0, 0];
+    }
+
+    final paddedMax = (maxValue * 1.14).ceil();
+    final paddedMin = math.max(0, (minValue * 0.82).floor());
+    return List.generate(5, (index) {
+      final value = paddedMax - ((paddedMax - paddedMin) * index / 4);
+      return value.round();
+    });
+  }
+
+  List<String> _sparseBottomLabels() {
+    if (points.isEmpty) {
+      return [];
+    }
+
+    final lastIndex = points.length - 1;
+    final indexes = <int>{0, 5, 10, 15, 20, 25, lastIndex}
+        .where((index) => index >= 0 && index <= lastIndex)
+        .toList();
+    return indexes.map((index) => points[index].label).toList();
+  }
+
+  String _formatAxisPaisa(int paisa) {
+    final rupees = paisa / 100;
+    if (rupees >= 100000) {
+      return 'Rs. ${(rupees / 100000).toStringAsFixed(1)}L';
+    }
+    if (rupees >= 1000) {
+      return 'Rs. ${(rupees / 1000).toStringAsFixed(1)}k';
+    }
+    return 'Rs. ${rupees.round()}';
+  }
+}
+
+class _SparseTrendLabels extends StatelessWidget {
+  final List<String> labels;
+  final Color textColor;
+
+  const _SparseTrendLabels({
+    required this.labels,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (final label in labels)
+          Text(
+            label,
+            maxLines: 1,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
           ),
       ],
     );
   }
+}
+
+class _TrendChangeLabel extends StatelessWidget {
+  final int value;
+
+  const _TrendChangeLabel({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isIncrease = value >= 0;
+    final color =
+        isIncrease ? _TrendColors.green : Theme.of(context).colorScheme.error;
+
+    return Column(
+      children: [
+        Icon(
+          isIncrease
+              ? Icons.arrow_drop_up_rounded
+              : Icons.arrow_drop_down_rounded,
+          color: color,
+          size: 20,
+        ),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            '${isIncrease ? '+' : '-'}${MoneyUtils.formatPaisa(value.abs())}',
+            maxLines: 1,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrendLinePainter extends CustomPainter {
+  final List<_TrendPoint> points;
+  final double progress;
+  final Color lineColor;
+  final Color gridColor;
+
+  const _TrendLinePainter({
+    required this.points,
+    required this.progress,
+    required this.lineColor,
+    required this.gridColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const chartPadding = 16.0;
+    final chartLeft = chartPadding;
+    final chartRight = size.width - chartPadding;
+    final chartWidth = math.max(1.0, chartRight - chartLeft);
+    final clampedProgress = progress.clamp(0.0, 1.0);
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+
+    for (var index = 0; index < 5; index++) {
+      final y = size.height * index / 4;
+      canvas.drawLine(Offset(chartLeft, y), Offset(chartRight, y), gridPaint);
+    }
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
+    final minValue = points.fold(
+      maxValue,
+      (min, point) => math.min(min, point.paisa),
+    );
+    final paddedMax = maxValue == 0 ? 1.0 : maxValue * 1.14;
+    final paddedMin = maxValue == 0 ? 0.0 : math.max(0.0, minValue * 0.82);
+    final range = math.max(1.0, paddedMax - paddedMin);
+    final gap = points.length == 1 ? 0.0 : chartWidth / (points.length - 1);
+
+    final chartPoints = <Offset>[
+      for (var index = 0; index < points.length; index++)
+        Offset(
+          points.length == 1 ? size.width / 2 : chartLeft + gap * index,
+          size.height -
+              ((points[index].paisa - paddedMin) / range * size.height),
+        ),
+    ];
+
+    final curvePath = _smoothPath(chartPoints);
+    final fillPath = Path.from(curvePath)
+      ..lineTo(chartRight, size.height)
+      ..lineTo(chartLeft, size.height)
+      ..close();
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          lineColor.withValues(alpha: 0.26),
+          lineColor.withValues(alpha: 0.02),
+        ],
+      ).createShader(Offset.zero & size);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(
+      chartLeft - chartPadding,
+      -20,
+      chartWidth * clampedProgress + chartPadding,
+      size.height + 40,
+    ));
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(curvePath, linePaint);
+    canvas.restore();
+
+    final marker = _markerAtProgress(chartPoints, clampedProgress);
+    final markerPaint = Paint()..color = lineColor;
+    final haloPaint = Paint()..color = lineColor.withValues(alpha: 0.18);
+    canvas.drawCircle(marker, 14, haloPaint);
+    canvas.drawCircle(marker, 6, markerPaint);
+    canvas.drawCircle(marker, 3, Paint()..color = Colors.white);
+  }
+
+  Path _smoothPath(List<Offset> offsets) {
+    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
+    if (offsets.length == 1) {
+      return path;
+    }
+
+    for (var index = 0; index < offsets.length - 1; index++) {
+      final current = offsets[index];
+      final next = offsets[index + 1];
+      final controlX = (current.dx + next.dx) / 2;
+      path.cubicTo(
+        controlX,
+        current.dy,
+        controlX,
+        next.dy,
+        next.dx,
+        next.dy,
+      );
+    }
+
+    return path;
+  }
+
+  Offset _markerAtProgress(List<Offset> offsets, double progress) {
+    if (offsets.length == 1) {
+      return offsets.first;
+    }
+
+    final position = (offsets.length - 1) * progress;
+    final lowerIndex = position.floor().clamp(0, offsets.length - 1);
+    final upperIndex = math.min(lowerIndex + 1, offsets.length - 1);
+    final localProgress = position - lowerIndex;
+    return Offset.lerp(
+      offsets[lowerIndex],
+      offsets[upperIndex],
+      localProgress,
+    )!;
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendLinePainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.progress != progress ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _TrendColors {
+  static const green = Color(0xFF2E9D57);
 }
 
 class _CategoryBreakdownRow extends StatelessWidget {

@@ -1,52 +1,35 @@
-import 'dart:io';
-
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
-import 'package:path_provider_android/path_provider_android.dart';
 
-import 'core/models/expense_model.dart';
-import 'core/models/user_profile_model.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'firebase_options.dart';
+import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/main_navigation.dart';
+import 'services/auth_service.dart';
+import 'services/bill_reminder_service.dart';
+import 'services/user_data_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _initHive();
-  runApp(const MyApp());
-}
 
-Future<void> _initHive() async {
-  final androidPathProvider = PathProviderAndroid();
-  final storagePath = await androidPathProvider.getApplicationSupportPath();
-  final hiveDirectory = Directory(storagePath ?? '.hive');
-  await hiveDirectory.create(recursive: true);
-
-  Hive.init(hiveDirectory.path);
-
-  if (!Hive.isAdapterRegistered(ExpenseModelAdapter().typeId)) {
-    Hive.registerAdapter(ExpenseModelAdapter());
-  }
-  if (!Hive.isAdapterRegistered(UserProfileModelAdapter().typeId)) {
-    Hive.registerAdapter(UserProfileModelAdapter());
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization skipped: $e');
   }
 
-  if (!Hive.isBoxOpen('transactions')) {
-    await Hive.openBox<ExpenseModel>('transactions');
-  }
-  if (!Hive.isBoxOpen('user_profile')) {
-    await Hive.openBox<UserProfileModel>('user_profile');
-  }
-  // Open settings box used for persisting app settings (theme, etc.)
-  if (!Hive.isBoxOpen('settings')) {
-    await Hive.openBox('settings');
-  }
-
-  // Load stored theme preference (if any)
+  await UserDataService.initialize();
   await AppThemeController.load();
+  await BillReminderService.initialize();
+  await BillReminderService.rescheduleAll();
+
+  runApp(const SmartExpenseApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class SmartExpenseApp extends StatelessWidget {
+  const SmartExpenseApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +47,7 @@ class MyApp extends StatelessWidget {
         );
 
         return MaterialApp(
-          title: 'Finance App',
+          title: 'SmartExpense',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             colorScheme: lightScheme,
@@ -82,7 +65,6 @@ class MyApp extends StatelessWidget {
               foregroundColor: lightScheme.onPrimary,
             ),
             bottomNavigationBarTheme: BottomNavigationBarThemeData(
-              // Preserve previous light-mode look (explicit white background)
               backgroundColor: Colors.white,
               selectedItemColor: lightScheme.primary,
               unselectedItemColor: Colors.grey[600],
@@ -115,10 +97,7 @@ class MyApp extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: lightScheme.primary,
-                  width: 1.5,
-                ),
+                borderSide: BorderSide(color: lightScheme.primary, width: 1.5),
               ),
             ),
             elevatedButtonTheme: ElevatedButtonThemeData(
@@ -158,7 +137,6 @@ class MyApp extends StatelessWidget {
               foregroundColor: darkScheme.onPrimary,
             ),
             bottomNavigationBarTheme: BottomNavigationBarThemeData(
-              // Dark mode uses theme surface to keep proper contrast
               backgroundColor: darkScheme.surface,
               selectedItemColor: darkScheme.primary,
               unselectedItemColor: darkScheme.onSurfaceVariant,
@@ -191,10 +169,7 @@ class MyApp extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: darkScheme.primary,
-                  width: 1.5,
-                ),
+                borderSide: BorderSide(color: darkScheme.primary, width: 1.5),
               ),
             ),
             elevatedButtonTheme: ElevatedButtonThemeData(
@@ -219,7 +194,20 @@ class MyApp extends StatelessWidget {
             ),
           ),
           themeMode: themeMode,
-          home: const MainNavigation(),
+          home: StreamBuilder(
+            stream: AuthService.authStateChanges,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              return snapshot.hasData
+                  ? const MainNavigation()
+                  : const LoginScreen();
+            },
+          ),
         );
       },
     );

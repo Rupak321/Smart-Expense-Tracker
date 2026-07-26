@@ -1,0 +1,544 @@
+import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../../core/models/bill_reminder.dart';
+import '../../../core/utils/money_utils.dart';
+import '../../../services/bill_reminder_service.dart';
+import '../../../services/user_settings_service.dart';
+
+class BillReminderScreen extends StatefulWidget {
+  const BillReminderScreen({super.key});
+
+  @override
+  State<BillReminderScreen> createState() => _BillReminderScreenState();
+}
+
+class _BillReminderScreenState extends State<BillReminderScreen> {
+  @override
+  void initState() {
+    super.initState();
+    BillReminderService.rescheduleAll();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bill Reminder'),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openReminderSheet(),
+        icon: const Icon(Icons.add_alert_rounded),
+        label: const Text('Add Bill'),
+      ),
+      body: SafeArea(
+        child: StreamBuilder<List<BillReminder>>(
+          stream: UserSettingsService.billRemindersStream(),
+          builder: (context, snapshot) {
+            final reminders = snapshot.data ?? <BillReminder>[];
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: colorScheme.onPrimary.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.auto_awesome_rounded,
+                          color: colorScheme.onPrimary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'AI bill alerts',
+                              style: TextStyle(
+                                color: colorScheme.onPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Get reminders for electricity, internet, rent, EMI and other payments.',
+                              style: TextStyle(
+                                color: colorScheme.onPrimary.withValues(alpha: 0.82),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (reminders.isEmpty)
+                  _EmptyReminderState(onAdd: () => _openReminderSheet())
+                else
+                  ...reminders.map(
+                    (reminder) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _ReminderTile(
+                        reminder: reminder,
+                        onEdit: () => _openReminderSheet(reminder: reminder),
+                        onDelete: () => _deleteReminder(reminder),
+                        onEnabledChanged: (value) => _toggleReminder(
+                          reminder,
+                          value,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openReminderSheet({BillReminder? reminder}) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => _ReminderFormSheet(reminder: reminder),
+    );
+
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bill reminder saved')),
+      );
+    }
+  }
+
+  Future<void> _toggleReminder(BillReminder reminder, bool enabled) async {
+    await UserSettingsService.saveBillReminder(reminder.copyWith(enabled: enabled));
+  }
+
+  Future<void> _deleteReminder(BillReminder reminder) async {
+    await UserSettingsService.deleteBillReminder(reminder.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${reminder.title} reminder deleted')),
+      );
+    }
+  }
+}
+
+class _ReminderFormSheet extends StatefulWidget {
+  final BillReminder? reminder;
+
+  const _ReminderFormSheet({this.reminder});
+
+  @override
+  State<_ReminderFormSheet> createState() => _ReminderFormSheetState();
+}
+
+class _ReminderFormSheetState extends State<_ReminderFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _notesController = TextEditingController();
+
+  DateTime _dueDate = DateTime.now().add(const Duration(days: 1));
+  int _remindDaysBefore = 1;
+  bool _enabled = true;
+  bool _saving = false;
+
+  static const _quickBills = ['Electricity bill', 'Internet bill', 'Rent', 'EMI'];
+
+  @override
+  void initState() {
+    super.initState();
+    final reminder = widget.reminder;
+    if (reminder != null) {
+      _titleController.text = reminder.title;
+      _amountController.text =
+          reminder.amount > 0 ? reminder.amount.toStringAsFixed(2) : '';
+      _notesController.text = reminder.notes;
+      _dueDate = reminder.dueDate;
+      _remindDaysBefore = reminder.remindDaysBefore;
+      _enabled = reminder.enabled;
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _amountController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                widget.reminder == null ? 'Add Bill Reminder' : 'Edit Bill Reminder',
+                style: TextStyle(
+                  color: colorScheme.onSurface,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _quickBills.map((bill) {
+                  return ActionChip(
+                    avatar: const Icon(Icons.receipt_long_rounded, size: 18),
+                    label: Text(bill),
+                    onPressed: () => _titleController.text = bill,
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Bill name',
+                  prefixIcon: Icon(Icons.edit_note_rounded),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Enter bill name';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _amountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Amount',
+                  prefixIcon: Icon(Icons.currency_rupee_rounded),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _PickerTile(
+                icon: Icons.event_rounded,
+                title: 'Due date',
+                value: _formatDate(_dueDate),
+                onTap: _pickDate,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                initialValue: _remindDaysBefore,
+                decoration: const InputDecoration(
+                  labelText: 'Remind me',
+                  prefixIcon: Icon(Icons.notifications_active_rounded),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text('On due date')),
+                  DropdownMenuItem(value: 1, child: Text('1 day before')),
+                  DropdownMenuItem(value: 2, child: Text('2 days before')),
+                  DropdownMenuItem(value: 3, child: Text('3 days before')),
+                  DropdownMenuItem(value: 7, child: Text('1 week before')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _remindDaysBefore = value);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _notesController,
+                minLines: 2,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Notes',
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+              ),
+              const SizedBox(height: 6),
+              SwitchListTile(
+                value: _enabled,
+                onChanged: (value) => setState(() => _enabled = value),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Enable reminder alerts'),
+              ),
+              const SizedBox(height: 14),
+              ElevatedButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: Icon(_saving ? Icons.hourglass_top_rounded : Icons.save_rounded),
+                label: Text(_saving ? 'Saving...' : 'Save Reminder'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dueDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+    );
+    if (picked != null) {
+      setState(() => _dueDate = picked);
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _saving = true);
+    final reminder = BillReminder(
+      id: widget.reminder?.id ?? const Uuid().v4(),
+      title: _titleController.text.trim(),
+      amount: double.tryParse(_amountController.text.trim()) ?? 0,
+      dueDate: _dueDate,
+      enabled: _enabled,
+      remindDaysBefore: _remindDaysBefore,
+      notes: _notesController.text.trim(),
+    );
+
+    await BillReminderService.saveReminder(reminder);
+
+    if (mounted) {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  static String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
+  }
+}
+
+class _ReminderTile extends StatelessWidget {
+  final BillReminder reminder;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onEnabledChanged;
+
+  const _ReminderTile({
+    required this.reminder,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onEnabledChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final daysLeft = reminder.dueDate.difference(DateTime.now()).inDays + 1;
+
+    return Material(
+      color: colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: onEdit,
+        leading: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: colorScheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(Icons.receipt_long_rounded, color: colorScheme.primary),
+        ),
+        title: Text(
+          reminder.title,
+          style: TextStyle(
+            color: colorScheme.onSurface,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        subtitle: Text(
+          '${_formatStatus(daysLeft)} • ${_formatDate(reminder.dueDate)}'
+          '${reminder.amount > 0 ? ' • ${MoneyUtils.formatAmount(reminder.amount)}' : ''}',
+          style: TextStyle(
+            color: colorScheme.onSurfaceVariant,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(
+              value: reminder.enabled,
+              onChanged: onEnabledChanged,
+            ),
+            IconButton(
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatStatus(int daysLeft) {
+    if (daysLeft <= 0) {
+      return 'Due today';
+    }
+    if (daysLeft == 1) {
+      return 'Due tomorrow';
+    }
+    return 'Due in $daysLeft days';
+  }
+
+  static String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
+  }
+}
+
+class _PickerTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final VoidCallback onTap;
+
+  const _PickerTile({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(value),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+    );
+  }
+}
+
+class _EmptyReminderState extends StatelessWidget {
+  final VoidCallback onAdd;
+
+  const _EmptyReminderState({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.notifications_active_outlined,
+            size: 42,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'No bill reminders yet',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Add your monthly bills and Smart Expense will alert you before they are due.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add first bill'),
+          ),
+        ],
+      ),
+    );
+  }
+}

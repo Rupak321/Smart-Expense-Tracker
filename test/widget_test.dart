@@ -4,7 +4,7 @@ import 'package:smartexpense/main.dart';
 
 void main() {
   testWidgets('shows finance app home screen', (WidgetTester tester) async {
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const SmartExpenseApp());
 
     expect(find.text('Total Balance'), findsOneWidget);
     expect(find.text('Transactions History'), findsOneWidget);

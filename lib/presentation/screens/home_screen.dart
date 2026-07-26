@@ -1,14 +1,18 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/components/summary_item.dart';
 import '../../../core/components/transaction_tile.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/models/user_profile_model.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../core/utils/profile_image_storage.dart';
+import '../../../services/ai_expense_service.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/user_data_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _addressController = TextEditingController();
   final _emailController = TextEditingController();
   final _occupationController = TextEditingController();
+  final _smartExpenseController = TextEditingController();
 
   final ImagePicker _imagePicker = ImagePicker();
   String? _profileImagePath;
@@ -36,26 +41,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _addressController.dispose();
     _emailController.dispose();
     _occupationController.dispose();
+    _smartExpenseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final transactionBox = Hive.isBoxOpen('transactions')
-        ? Hive.box<ExpenseModel>('transactions')
-        : null;
-    final profileBox = Hive.isBoxOpen('user_profile')
-        ? Hive.box<UserProfileModel>('user_profile')
-        : null;
-
-    if (transactionBox == null) {
-      return const Center(child: Text('No transactions available'));
-    }
-
-    return StreamBuilder<BoxEvent>(
-      stream: transactionBox.watch(),
+    return StreamBuilder<List<ExpenseModel>>(
+      stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
-        final transactions = _sortedTransactions(transactionBox);
+        final transactions = _sortedTransactions(snapshot.data ?? const <ExpenseModel>[]);
         final expenseTransactions =
             transactions.where((tx) => tx.isExpense).toList();
         final incomePaisa = _totalPaisa(
@@ -75,6 +70,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   incomePaisa,
                   expensePaisa,
                 ),
+              ),
+              SliverToBoxAdapter(
+                child: _buildSmartExpenseInput(context),
               ),
               SliverToBoxAdapter(child: _buildSectionHeader(context)),
               if (transactions.isEmpty)
@@ -115,27 +113,34 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        if (profileBox != null) {
-          final profileData = profileBox.get('primary');
-          if (profileData == null && !_profilePromptShown) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _showProfilePopup(profileBox);
-            });
-          }
+        return StreamBuilder<UserProfileModel?>(
+          stream: UserDataService.profileStream(),
+          builder: (context, profileSnapshot) {
+            final authUser = AuthService.currentUser;
+            final profileData = profileSnapshot.data ??
+                (authUser != null
+                    ? UserProfileModel(
+                        name: authUser.displayName ?? '',
+                        phoneNumber: '',
+                        address: '',
+                        email: authUser.email ?? '',
+                        occupation: '',
+                        updatedAt: DateTime.now(),
+                        profileImagePath: authUser.photoURL,
+                      )
+                    : null);
 
-          return StreamBuilder<BoxEvent>(
-            stream: profileBox.watch(key: 'primary'),
-            builder: (context, profileSnapshot) {
-              final profileData = profileBox.get('primary');
-              final userName = profileData?.name.trim().isNotEmpty == true
-                  ? profileData!.name
-                  : 'Guest User';
-              return content(userName);
-            },
-          );
-        }
-
-        return content('Guest User');
+            if (profileData == null && !_profilePromptShown) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _showProfilePopup();
+              });
+            }
+            final userName = profileData?.name.trim().isNotEmpty == true
+                ? profileData!.name
+                : 'Guest User';
+            return content(userName);
+          },
+        );
       },
     );
   }
@@ -194,12 +199,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontSize: 13,
                   ),
                 ),
-                Text(
-                  MoneyUtils.formatPaisa(balancePaisa),
-                  style: TextStyle(
-                    color: colorScheme.onPrimary,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      MoneyUtils.formatPaisa(balancePaisa),
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: colorScheme.onPrimary,
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -214,6 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         amount: MoneyUtils.formatPaisa(incomePaisa),
                       ),
                     ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: SummaryItem(
                         icon: Icons.arrow_upward,
@@ -231,6 +245,143 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSmartExpenseInput(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+          ),
+        ),
+        child: TextField(
+          controller: _smartExpenseController,
+          decoration: InputDecoration(
+            hintText: 'AI add (e.g. salary 45k, Rs. 450 food)',
+            hintStyle: TextStyle(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurfaceVariant
+                  .withValues(alpha: 0.6),
+              fontSize: 14,
+            ),
+            prefixIcon: Icon(
+              Icons.auto_awesome,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            suffixIcon: _isProcessingSmartExpense
+                ? Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    icon: Icon(
+                      Icons.send_rounded,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    onPressed: _processSmartExpense,
+                  ),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+          ),
+          onSubmitted: (_) => _processSmartExpense(),
+        ),
+      ),
+    );
+  }
+
+  bool _isProcessingSmartExpense = false;
+
+  void _processSmartExpense() async {
+    final text = _smartExpenseController.text.trim();
+    if (text.isEmpty || _isProcessingSmartExpense) return;
+
+    setState(() {
+      _isProcessingSmartExpense = true;
+    });
+
+    try {
+      final result = await AiExpenseService.parseExpense(text);
+      if (!mounted) return;
+
+      if (result != null && result.amount > 0) {
+        final newExpense = ExpenseModel(
+          id: const Uuid().v4(),
+          title: result.title,
+          amount: result.amount,
+          category: result.category,
+          date: DateTime.now(),
+          isExpense: result.isExpense,
+        );
+
+        await UserDataService.addTransaction(newExpense);
+        if (!mounted) return;
+        _smartExpenseController.clear();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Added ${result.isExpense ? 'expense' : 'income'}: Rs. ${result.amount}',
+            ),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Could not detect expense details. Please try again.'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingSmartExpense = false;
+        });
+      }
+    }
+  }
+
   Widget _buildSectionHeader(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -244,16 +395,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w700,
                 ),
           ),
-          TextButton(onPressed: () {}, child: Text('See all', style: TextStyle(color: Theme.of(context).colorScheme.primary))),
+          TextButton(
+            onPressed: () {},
+            child: Text(
+              'See all',
+              style: TextStyle(color: Theme.of(context).colorScheme.primary),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  List<ExpenseModel> _sortedTransactions(Box<ExpenseModel> box) {
-    final transactions = box.values.toList();
-    transactions.sort((a, b) => b.date.compareTo(a.date));
-    return transactions;
+  List<ExpenseModel> _sortedTransactions(List<ExpenseModel> transactions) {
+    final sorted = List<ExpenseModel>.from(transactions);
+    sorted.sort((a, b) => b.date.compareTo(a.date));
+    return sorted;
   }
 
   int _totalPaisa(Iterable<ExpenseModel> transactions) {
@@ -267,34 +424,41 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   IconData _iconForCategory(String category) {
-    switch (category.toLowerCase()) {
-      case 'food':
-        return Icons.fastfood;
-      case 'shopping':
-        return Icons.shopping_bag;
-      case 'travel':
-        return Icons.flight;
-      case 'bills':
-        return Icons.receipt_long;
-      case 'salary':
-      case 'income':
-        return Icons.attach_money;
-      case 'freelance':
-        return Icons.laptop_mac;
-      case 'business':
-        return Icons.storefront;
-      case 'investments':
-        return Icons.trending_up;
-      case 'gifts':
-        return Icons.card_giftcard;
-      case 'entertainment':
-        return Icons.movie;
-      default:
-        return Icons.category;
+    final lower = category.toLowerCase();
+    if (lower.contains('food') ||
+        lower.contains('restaurant') ||
+        lower.contains('grocer')) {
+      return Icons.fastfood;
     }
+    if (lower.contains('shopping') ||
+        lower.contains('clothes') ||
+        lower.contains('electronics')) {
+      return Icons.shopping_bag;
+    }
+    if (lower.contains('travel') || lower.contains('transport')) {
+      return Icons.flight;
+    }
+    if (lower.contains('bill') || lower.contains('utilit')) {
+      return Icons.receipt_long;
+    }
+    if (lower.contains('salary') ||
+        lower.contains('income') ||
+        lower.contains('freelance') ||
+        lower.contains('business')) {
+      return Icons.attach_money;
+    }
+    if (lower.contains('invest')) return Icons.trending_up;
+    if (lower.contains('gift')) return Icons.card_giftcard;
+    if (lower.contains('entertain') || lower.contains('movie')) {
+      return Icons.movie;
+    }
+    if (lower.contains('health') || lower.contains('medic')) {
+      return Icons.local_hospital;
+    }
+    return Icons.category;
   }
 
-  Future<void> _showProfilePopup(Box<UserProfileModel> profileBox) async {
+  Future<void> _showProfilePopup() async {
     if (!mounted) return;
 
     setState(() {
@@ -371,8 +535,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             imageQuality: 80,
                           );
                           if (picked == null) return;
+                          final savedPath =
+                              await ProfileImageStorage.savePickedImage(picked.path);
                           setSheetState(() {
-                            _profileImagePath = picked.path;
+                            _profileImagePath = savedPath;
                           });
                         },
                         child: Container(
@@ -450,7 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           return;
                         }
                         final navigator = Navigator.of(context);
-                        await _saveProfile(profileBox);
+                        await _saveProfile();
                         if (!mounted) return;
                         navigator.pop();
                       },
@@ -475,7 +641,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _saveProfile(Box<UserProfileModel> profileBox) async {
+  Future<void> _saveProfile() async {
     final profile = UserProfileModel(
       name: _nameController.text.trim(),
       phoneNumber: _phoneController.text.trim(),
@@ -486,8 +652,7 @@ class _HomeScreenState extends State<HomeScreen> {
       profileImagePath: _profileImagePath,
     );
 
-    await profileBox.put('primary', profile);
-    await profileBox.flush();
+    await UserDataService.saveProfile(profile);
   }
 
   Widget _buildProfileField({

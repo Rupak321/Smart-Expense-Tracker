@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'account_screen.dart';
-import 'all_expenses_screen.dart';
+import 'ai_financial_assistant_screen.dart';
 import 'analytics_screen.dart';
 import 'home_screen.dart';
 import '../widgets/add_transaction_sheet.dart';
@@ -29,8 +29,8 @@ class _MainNavigationState extends State<MainNavigation> {
     final colorScheme = theme.colorScheme;
     final screens = [
       const HomeScreen(),
-      const AllExpensesScreen(),
       const AnalyticsScreen(),
+      const AiFinancialAssistantScreen(),
       const AccountScreen(),
     ];
 
@@ -39,24 +39,27 @@ class _MainNavigationState extends State<MainNavigation> {
       body: SafeArea(
         child: IndexedStack(index: _selectedIndex, children: screens),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled:
-                true, // Ensures layout pushes upward smoothly over the software panel keyboard
-            backgroundColor: colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            builder: (context) => const AddTransactionSheet(),
-          );
-        },
-        backgroundColor: colorScheme.primary,
-        foregroundColor: colorScheme.onPrimary,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add, size: 28),
-      ),
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  builder: (context) => const AddTransactionSheet(),
+                );
+              },
+              backgroundColor: colorScheme.primary,
+              foregroundColor: colorScheme.onPrimary,
+              shape: const CircleBorder(),
+              child: const Icon(Icons.add, size: 28),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: BottomAppBar(
         shape: const CircularNotchedRectangle(),
@@ -69,11 +72,11 @@ class _MainNavigationState extends State<MainNavigation> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildNavItem(Icons.home_rounded, 0),
-              _buildNavItem(Icons.receipt_long_rounded, 1),
+              _buildNavItem(Icons.bar_chart_rounded, 1),
               const SizedBox(
                 width: 40,
               ), // Void clearance width spacing allocation structural buffer for center FAB inclusion
-              _buildNavItem(Icons.bar_chart_rounded, 2),
+              _buildNavItem(Icons.smart_toy_rounded, 2),
               _buildNavItem(Icons.person_outline_rounded, 3),
             ],
           ),
@@ -81,6 +84,7 @@ class _MainNavigationState extends State<MainNavigation> {
       ),
     );
   }
+  
 
   /// Builds unified responsive nav system selectors mapping dynamic state contexts
   Widget _buildNavItem(IconData icon, int index) {

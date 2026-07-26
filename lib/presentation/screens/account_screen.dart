@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/models/user_profile_model.dart';
 import '../../../core/theme/app_theme_controller.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/user_data_service.dart';
+import 'bill_reminder_screen.dart';
+import 'personal_details_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -15,86 +18,7 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  // Theme-aware colors are used from Theme.of(context)
-
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _occupationController = TextEditingController();
-
-  bool _isSaving = false;
-  bool _loadedProfile = false;
   String? _profileImagePath;
-  final ImagePicker _imagePicker = ImagePicker();
-
-  Box<UserProfileModel> get _box => Hive.box<UserProfileModel>('user_profile');
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    _emailController.dispose();
-    _occupationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    // Load stored profile once to populate controllers without rebuilding on every change
-    final profile = _box.get('primary');
-    _loadProfile(profile);
-  }
-
-  void _loadProfile(UserProfileModel? profile) {
-    if (_loadedProfile) {
-      return;
-    }
-
-    _nameController.text = profile?.name ?? '';
-    _phoneController.text = profile?.phoneNumber ?? '';
-    _addressController.text = profile?.address ?? '';
-    _emailController.text = profile?.email ?? '';
-    _occupationController.text = profile?.occupation ?? '';
-    _profileImagePath = profile?.profileImagePath;
-    _loadedProfile = true;
-  }
-
-  Future<void> _saveProfile() async {
-    if (_isSaving || !_formKey.currentState!.validate()) {
-      return;
-    }
-
-    setState(() => _isSaving = true);
-
-    final profile = UserProfileModel(
-      name: _nameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      address: _addressController.text.trim(),
-      email: _emailController.text.trim(),
-      occupation: _occupationController.text.trim(),
-      updatedAt: DateTime.now(),
-      profileImagePath: _profileImagePath,
-    );
-
-    try {
-      await _box.put('primary', profile);
-      await _box.flush();
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Account details saved')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -102,14 +26,16 @@ class _AccountScreenState extends State<AccountScreen> {
       slivers: [
         const SliverToBoxAdapter(child: _AccountHeader()),
         SliverToBoxAdapter(
-          child: StreamBuilder<BoxEvent>(
-            stream: _box.watch(key: 'primary'),
+          child: StreamBuilder<UserProfileModel?>(
+            stream: UserDataService.profileStream(),
             builder: (context, snapshot) {
-              final profile = _box.get('primary');
+              final profile = snapshot.data;
+              final user = AuthService.currentUser;
               return _ProfileSummary(
                 profile: profile,
-                profileImagePath: _profileImagePath,
-                onAvatarTap: _pickProfileImage,
+                authUser: user,
+                profileImagePath: _profileImagePath ?? profile?.profileImagePath ?? user?.photoURL,
+                onTap: _openPersonalDetails,
               );
             },
           ),
@@ -117,132 +43,77 @@ class _AccountScreenState extends State<AccountScreen> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 170),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Personal Details',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _nameController,
-                    label: 'Full Name',
-                    icon: Icons.person_rounded,
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _phoneController,
-                    label: 'Phone Number',
-                    icon: Icons.phone_rounded,
-                    keyboardType: TextInputType.phone,
-                    validator: _phoneValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _emailController,
-                    label: 'Email',
-                    icon: Icons.mail_rounded,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: _emailValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _occupationController,
-                    label: 'Occupation',
-                    icon: Icons.work_rounded,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _addressController,
-                    label: 'Address',
-                    icon: Icons.location_on_rounded,
-                    minLines: 2,
-                    maxLines: 3,
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 18),
-                  ElevatedButton.icon(
-                    onPressed: _isSaving ? null : _saveProfile,
-                    icon: Icon(
-                      _isSaving ? Icons.hourglass_top_rounded : Icons.save_rounded,
-                    ),
-                    label: Text(_isSaving ? 'Saving...' : 'Save Details'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                      disabledBackgroundColor:
-                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.55),
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Settings',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ValueListenableBuilder<ThemeMode>(
-                    valueListenable: AppThemeController.themeMode,
-                    builder: (context, themeMode, child) {
-                      final isDark = themeMode == ThemeMode.dark;
+                ),
+                const SizedBox(height: 12),
+                _SettingsTile(
+                  icon: Icons.person_rounded,
+                  title: 'Personal Details',
+                  subtitle: 'Name, phone, email, occupation, address',
+                  onTap: _openPersonalDetails,
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: AppThemeController.themeMode,
+                  builder: (context, themeMode, child) {
+                    final isDark = themeMode == ThemeMode.dark;
 
-                      return _SettingsSwitchTile(
-                        icon: isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                        title: 'Dark Mode',
-                        subtitle: isDark ? 'Dark theme on' : 'Light theme on',
-                        value: isDark,
-                        onChanged: AppThemeController.setDarkMode,
-                      );
-                    },
+                    return _SettingsSwitchTile(
+                      icon: isDark
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      title: 'Dark Mode',
+                      subtitle: isDark ? 'Dark theme on' : 'Light theme on',
+                      value: isDark,
+                      onChanged: AppThemeController.setDarkMode,
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                _SettingsTile(
+                  icon: Icons.currency_rupee_rounded,
+                  title: 'Currency',
+                  subtitle: 'Nepalese Rupee',
+                  onTap: () => _showSettingMessage(
+                    context,
+                    'Currency settings are coming soon',
                   ),
-                  const SizedBox(height: 10),
-                  _SettingsTile(
-                    icon: Icons.currency_rupee_rounded,
-                    title: 'Currency',
-                    subtitle: 'Nepalese Rupee',
-                    onTap: () => _showSettingMessage(
-                      context,
-                      'Currency settings are coming soon',
+                ),
+                const SizedBox(height: 10),
+                _SettingsTile(
+                  icon: Icons.notifications_rounded,
+                  title: 'Bill Reminder',
+                  subtitle: 'Electricity, internet, rent, EMI alerts',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const BillReminderScreen(),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  _SettingsTile(
-                    icon: Icons.notifications_rounded,
-                    title: 'Notifications',
-                    subtitle: 'Budget reminders and alerts',
-                    onTap: () => _showSettingMessage(
-                      context,
-                      'Notification settings are coming soon',
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _SettingsTile(
-                    icon: Icons.info_rounded,
-                    title: 'About App',
-                    subtitle: 'Smart Expense v1.0.0',
-                    onTap: () => _showAboutDialog(context),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 10),
+                _SettingsTile(
+                  icon: Icons.info_rounded,
+                  title: 'About App',
+                  subtitle: 'Smart Expense v1.0.0',
+                  onTap: () => _showAboutDialog(context),
+                ),
+                const SizedBox(height: 12),
+                _SettingsTile(
+                  icon: Icons.exit_to_app,
+                  title: 'Logout',
+                  subtitle: 'Sign out',
+                  onTap: _logout,
+                ),
+              ],
             ),
           ),
         ),
@@ -250,49 +121,14 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
-  String? _requiredValidator(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'This field is required';
-    }
-    return null;
-  }
-
-  String? _phoneValidator(String? value) {
-    final trimmed = value?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return 'Phone number is required';
-    }
-    if (!RegExp(r'^[0-9+\-\s]{7,16}$').hasMatch(trimmed)) {
-      return 'Enter a valid phone number';
-    }
-    return null;
-  }
-
-  String? _emailValidator(String? value) {
-    final trimmed = value?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return 'Email is required';
-    }
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(trimmed)) {
-      return 'Enter a valid email address';
-    }
-    return null;
-  }
-
-  Future<void> _pickProfileImage() async {
-    final picked = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 80,
+  Future<void> _openPersonalDetails() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const PersonalDetailsScreen()),
     );
-    if (picked == null) {
+    if (!mounted) {
       return;
     }
-
-    setState(() {
-      _profileImagePath = picked.path;
-    });
+    setState(() {});
   }
 
   void _showSettingMessage(BuildContext context, String message) {
@@ -322,6 +158,16 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       ],
     );
+  }
+
+  void _logout() {
+    AuthService.logout();
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Signed out')));
+      // The app will automatically redirect to login screen on next rebuild
+    }
   }
 }
 
@@ -364,29 +210,36 @@ class _AccountHeader extends StatelessWidget {
 
 class _ProfileSummary extends StatelessWidget {
   final UserProfileModel? profile;
+  final User? authUser;
   final String? profileImagePath;
-  final VoidCallback? onAvatarTap;
+  final VoidCallback? onTap;
 
   const _ProfileSummary({
     required this.profile,
+    this.authUser,
     this.profileImagePath,
-    this.onAvatarTap,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = profile?.name.trim().isEmpty == false
+    final name = profile?.name.trim().isNotEmpty == true
         ? profile!.name
-        : 'Your Name';
-    final phone = profile?.phoneNumber.trim().isEmpty == false
+        : authUser?.displayName?.trim().isNotEmpty == true
+            ? authUser!.displayName!
+            : 'Your Name';
+    final phone = profile?.phoneNumber.trim().isNotEmpty == true
         ? profile!.phoneNumber
         : 'Add phone number';
-    final address = profile?.address.trim().isEmpty == false
+    final address = profile?.address.trim().isNotEmpty == true
         ? profile!.address
         : 'Add address';
     final initial = name == 'Your Name'
         ? 'U'
         : name.substring(0, 1).toUpperCase();
+    final imagePath = profileImagePath ?? profile?.profileImagePath ?? authUser?.photoURL;
+    final hasProfileImage = imagePath != null && imagePath.isNotEmpty &&
+        (imagePath.startsWith('http') || File(imagePath).existsSync());
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -405,7 +258,7 @@ class _ProfileSummary extends StatelessWidget {
       child: Row(
         children: [
           GestureDetector(
-            onTap: onAvatarTap,
+            onTap: onTap,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -415,17 +268,17 @@ class _ProfileSummary extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.18),
                     shape: BoxShape.circle,
-                    image: (profileImagePath ?? profile?.profileImagePath) != null &&
-                            (profileImagePath ?? profile?.profileImagePath)!.isNotEmpty
+                    image: hasProfileImage
                         ? DecorationImage(
-                            image: FileImage(File(profileImagePath ?? profile!.profileImagePath!)),
+                            image: imagePath.startsWith('http')
+                    ? NetworkImage(imagePath) as ImageProvider
+                    : FileImage(File(imagePath)),
                             fit: BoxFit.cover,
                           )
                         : null,
                   ),
                 ),
-                if ((profileImagePath ?? profile?.profileImagePath) == null ||
-                    (profileImagePath ?? profile?.profileImagePath)!.isEmpty)
+                if (!hasProfileImage)
                   Text(
                     initial,
                     style: TextStyle(
@@ -511,58 +364,6 @@ class _SummaryLine extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AccountField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final IconData icon;
-  final TextInputType? keyboardType;
-  final int minLines;
-  final int maxLines;
-  final String? Function(String? value)? validator;
-
-  const _AccountField({
-    required this.controller,
-    required this.label,
-    required this.icon,
-    this.keyboardType,
-    this.minLines = 1,
-    this.maxLines = 1,
-    this.validator,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      minLines: minLines,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: Theme.of(context).iconTheme.color),
-        filled: true,
-        fillColor: Theme.of(context).colorScheme.surface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.5,
-          ),
-        ),
-      ),
-      validator: validator,
     );
   }
 }

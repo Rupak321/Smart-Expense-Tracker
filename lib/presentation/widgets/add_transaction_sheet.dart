@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/models/expense_model.dart';
 import '../../core/utils/money_utils.dart';
+import '../../services/user_data_service.dart';
 
 class AddTransactionSheet extends StatefulWidget {
   const AddTransactionSheet({super.key});
@@ -65,12 +65,8 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
       );
 
       try {
-        // Access our pre-opened Hive box and save the entry
-        final box = Hive.box<ExpenseModel>('transactions');
-        await box.add(newTransaction);
-        await box.flush();
+        await UserDataService.addTransaction(newTransaction);
 
-        // Close the modal sheet panel view
         if (mounted) {
           Navigator.pop(context);
         }

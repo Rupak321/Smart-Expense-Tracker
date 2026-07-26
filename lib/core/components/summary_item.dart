@@ -21,37 +21,48 @@ class SummaryItem extends StatelessWidget {
         Container(
           width: 32,
           height: 32,
-            decoration: BoxDecoration(
+          decoration: BoxDecoration(
             color: colorScheme.onPrimary.withValues(alpha: 0.18),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: colorScheme.onPrimary, size: 16),
         ),
         const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: colorScheme.onPrimary.withValues(alpha: 0.8),
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colorScheme.onPrimary.withValues(alpha: 0.8),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              amount,
-              style: TextStyle(
-                color: colorScheme.onPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 2),
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    amount,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: colorScheme.onPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
   }
-
 }

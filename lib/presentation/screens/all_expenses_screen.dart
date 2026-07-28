@@ -7,7 +7,7 @@ import '../../../services/user_data_service.dart';
 
 class AllExpensesScreen extends StatelessWidget {
   const AllExpensesScreen({super.key});
-
+  
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ExpenseModel>>(
@@ -33,13 +33,14 @@ class AllExpensesScreen extends StatelessWidget {
             scrolledUnderElevation: 0,
             iconTheme: IconThemeData(color: Theme.of(context).colorScheme.onSurface),
           ),
+         
           body: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
               child: _Header(
                 count: expenseCount,
                 total: MoneyUtils.formatPaisa(totalExpensePaisa),
-              ),
+                            ),
             ),
             if (expenses.isNotEmpty)
               SliverToBoxAdapter(child: _SectionHeader(count: expenseCount)),
@@ -54,33 +55,70 @@ class AllExpensesScreen extends StatelessWidget {
                     const sign = '-';
 
                     return Dismissible(
+
                       key: ValueKey(transaction.id),
+
                       direction: DismissDirection.endToStart,
+
                       background: const _DeleteBackground(),
+
                       confirmDismiss: (_) =>
+
                           _confirmDelete(context, transaction),
+
                       child: TransactionTile(
+
                         title: transaction.title,
+
                         category: _dateLabel(
+
                           transaction.date,
+
                           transaction.category,
+                        
                         ),
+
                         amount:
+
                             '$sign ${MoneyUtils.formatAmount(transaction.amount)}',
+
                         isExpense: transaction.isExpense,
+
                         icon: _iconForCategory(transaction.category),
+
                         onTap: () => _confirmDelete(context, transaction),
+
                       ),
+
                     );
+
                   }, childCount: expenses.length),
+
+
                 ),
+
+
               ),
+
+
           ],
+
+
         ),
+
+
         );
+
+
       },
+
+
     );
+
+
   }
+
+
 
   List<ExpenseModel> _sortedTransactions(List<ExpenseModel> transactions) {
     final sorted = List<ExpenseModel>.from(transactions);

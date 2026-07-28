@@ -53,7 +53,7 @@ class SmartExpenseApp extends StatelessWidget {
             colorScheme: lightScheme,
             useMaterial3: true,
             fontFamily: 'Roboto',
-            scaffoldBackgroundColor: lightScheme.background,
+            scaffoldBackgroundColor: lightScheme.surface,
             appBarTheme: AppBarTheme(
               backgroundColor: lightScheme.surface,
               foregroundColor: lightScheme.onSurface,
@@ -110,13 +110,13 @@ class SmartExpenseApp extends StatelessWidget {
               ),
             ),
             switchTheme: SwitchThemeData(
-              thumbColor: MaterialStateProperty.all(lightScheme.primary),
-              trackColor: MaterialStateProperty.all(
+              thumbColor: WidgetStateProperty.all(lightScheme.primary),
+              trackColor: WidgetStateProperty.all(
                 lightScheme.primary.withValues(alpha: 0.3),
               ),
             ),
             snackBarTheme: SnackBarThemeData(
-              backgroundColor: lightScheme.surfaceVariant,
+              backgroundColor: lightScheme.surfaceContainerHighest,
               contentTextStyle: TextStyle(color: lightScheme.onSurface),
               actionTextColor: lightScheme.primary,
             ),
@@ -125,7 +125,7 @@ class SmartExpenseApp extends StatelessWidget {
             colorScheme: darkScheme,
             useMaterial3: true,
             fontFamily: 'Roboto',
-            scaffoldBackgroundColor: darkScheme.background,
+            scaffoldBackgroundColor: darkScheme.surface,
             appBarTheme: AppBarTheme(
               backgroundColor: darkScheme.surface,
               foregroundColor: darkScheme.onSurface,
@@ -182,13 +182,13 @@ class SmartExpenseApp extends StatelessWidget {
               ),
             ),
             switchTheme: SwitchThemeData(
-              thumbColor: MaterialStateProperty.all(darkScheme.primary),
-              trackColor: MaterialStateProperty.all(
+              thumbColor: WidgetStateProperty.all(darkScheme.primary),
+              trackColor: WidgetStateProperty.all(
                 darkScheme.primary.withValues(alpha: 0.3),
               ),
             ),
             snackBarTheme: SnackBarThemeData(
-              backgroundColor: darkScheme.surfaceVariant,
+              backgroundColor: darkScheme.surfaceContainerHighest,
               contentTextStyle: TextStyle(color: darkScheme.onSurface),
               actionTextColor: darkScheme.primary,
             ),

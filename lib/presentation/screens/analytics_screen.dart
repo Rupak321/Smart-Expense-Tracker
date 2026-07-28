@@ -1,9 +1,14 @@
 import 'dart:math' as math;
 import 'dart:convert';
+import 'dart:ui' as ui;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/models/expense_model.dart';
 import '../../../core/utils/money_utils.dart';
@@ -13,7 +18,6 @@ import 'all_expenses_screen.dart';
 class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
 
-  static const _accent = Color(0xFF2A9D8F);
   static const _ink = Color(0xFF1A1A2E);
 
   @override
@@ -745,82 +749,160 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-class _ChartPanel extends StatelessWidget {
+class _ChartPanel extends StatefulWidget {
   final int totalExpensePaisa;
   final List<_CategorySlice> slices;
 
   const _ChartPanel({required this.totalExpensePaisa, required this.slices});
 
   @override
+  State<_ChartPanel> createState() => _ChartPanelState();
+}
+
+class _ChartPanelState extends State<_ChartPanel> {
+  final GlobalKey _boundaryKey = GlobalKey();
+  bool _isSharing = false;
+
+  Future<void> _shareChart() async {
+    if (_isSharing) return;
+
+    setState(() {
+      _isSharing = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final boundary = _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 3.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null) {
+            final pngBytes = byteData.buffer.asUint8List();
+            final directory = await getTemporaryDirectory();
+            final filePath = '${directory.path}/expense_breakdown_${DateTime.now().millisecondsSinceEpoch}.png';
+            final file = File(filePath);
+            await file.writeAsBytes(pngBytes);
+
+            if (!mounted) return;
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: 'My Expense Breakdown from Smart Expense!',
+              sharePositionOrigin: origin,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error sharing chart: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to share chart: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSharing = false;
+          });
+        }
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Expense Breakdown',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 18),
-          Center(
-            child: SizedBox(
-              width: 190,
-              height: 190,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CustomPaint(
-                    size: const Size.square(176),
-                    painter: _DonutChartPainter(slices: slices, backgroundColor: colorScheme.outline),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Total Spent',
-                        style: TextStyle(
-                          color: colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
+    return RepaintBoundary(
+      key: _boundaryKey,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colorScheme.outline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Expense Breakdown',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w800,
                       ),
-                      const SizedBox(height: 4),
-                      SizedBox(
-                        width: 112,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            MoneyUtils.formatPaisa(totalExpensePaisa),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: colorScheme.onSurface,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
+                ),
+                if (widget.slices.isNotEmpty)
+                  _isSharing
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: SizedBox.shrink(),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.share_rounded, size: 20),
+                          tooltip: 'Share breakdown chart',
+                          onPressed: _shareChart,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Center(
+              child: SizedBox(
+                width: 190,
+                height: 190,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: const Size.square(176),
+                      painter: _DonutChartPainter(slices: widget.slices, backgroundColor: colorScheme.outline),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Total Spent',
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          width: 112,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              MoneyUtils.formatPaisa(widget.totalExpensePaisa),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: colorScheme.onSurface,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _LegendList(slices: slices, totalExpensePaisa: totalExpensePaisa),
-        ],
+            const SizedBox(height: 16),
+            _LegendList(slices: widget.slices, totalExpensePaisa: widget.totalExpensePaisa),
+          ],
+        ),
       ),
     );
   }
@@ -904,6 +986,8 @@ class _TrendPanel extends StatefulWidget {
 
 class _TrendPanelState extends State<_TrendPanel> {
   var _selectedRange = _TrendRange.sevenDays;
+  final GlobalKey _boundaryKey = GlobalKey();
+  bool _isSharing = false;
 
   List<_TrendPoint> get _points {
     return _selectedRange == _TrendRange.sevenDays
@@ -913,6 +997,53 @@ class _TrendPanelState extends State<_TrendPanel> {
 
   int get _dayCount {
     return _selectedRange == _TrendRange.sevenDays ? 7 : 30;
+  }
+
+  Future<void> _shareChart() async {
+    if (_isSharing) return;
+
+    setState(() {
+      _isSharing = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final boundary = _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 3.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null) {
+            final pngBytes = byteData.buffer.asUint8List();
+            final directory = await getTemporaryDirectory();
+            final filePath = '${directory.path}/spending_trend_${_dayCount}d_${DateTime.now().millisecondsSinceEpoch}.png';
+            final file = File(filePath);
+            await file.writeAsBytes(pngBytes);
+
+            if (!mounted) return;
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: 'My $_dayCount Days Spending Trend from Smart Expense!',
+              sharePositionOrigin: origin,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error sharing chart: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to share chart: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSharing = false;
+          });
+        }
+      }
+    });
   }
 
   @override
@@ -928,49 +1059,71 @@ class _TrendPanelState extends State<_TrendPanel> {
         : changePaisa / points.first.paisa * 100;
     final isIncrease = changePaisa >= 0;
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colorScheme.outline),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Last $_dayCount Days',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: colorScheme.onSurface,
-                            fontWeight: FontWeight.w800,
+    return RepaintBoundary(
+      key: _boundaryKey,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: colorScheme.outline),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Last $_dayCount Days',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  color: colorScheme.onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
                           ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Expense trend',
-                      style: TextStyle(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                          const SizedBox(width: 8),
+                          if (points.isNotEmpty)
+                            _isSharing
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: SizedBox.shrink(),
+                                  )
+                                : IconButton(
+                                    icon: const Icon(Icons.share_rounded, size: 18),
+                                    tooltip: 'Share trend chart',
+                                    onPressed: _shareChart,
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      Text(
+                        'Expense trend',
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -1049,8 +1202,9 @@ class _TrendPanelState extends State<_TrendPanel> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 enum _TrendRange { sevenDays, thirtyDays }

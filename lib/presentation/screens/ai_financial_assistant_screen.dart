@@ -66,6 +66,7 @@ class _AiFinancialAssistantScreenState
           onHistory: _showChatHistory,
           onNewChat: _newChat,
         ),
+      
         Expanded(
           child: StreamBuilder<AiChatSession?>(
             stream: _session != null
@@ -518,6 +519,9 @@ class _ChatHistorySheet extends StatelessWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                           side: BorderSide(
+                            
+                            
+                            
                             color: isActive
                                 ? colorScheme.primary
                                 : colorScheme.outline,

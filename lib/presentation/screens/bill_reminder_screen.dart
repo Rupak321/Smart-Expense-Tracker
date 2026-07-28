@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/models/bill_reminder.dart';
+import '../../../core/services/ocr_service.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/bill_reminder_service.dart';
 import '../../../services/user_settings_service.dart';
@@ -167,8 +169,82 @@ class _ReminderFormSheetState extends State<_ReminderFormSheet> {
   int _remindDaysBefore = 1;
   bool _enabled = true;
   bool _saving = false;
+  bool _isScanning = false;
 
   static const _quickBills = ['Electricity bill', 'Internet bill', 'Rent', 'EMI'];
+
+  final OcrService _ocrService = OcrService();
+
+  Future<void> _scanReceipt(ImageSource source) async {
+    setState(() => _isScanning = true);
+    try {
+      final imageFile = await _ocrService.pickImage(source);
+      if (imageFile == null) return;
+
+      final result = await _ocrService.scanBill(imageFile);
+
+      if (!mounted) return;
+
+      if (result.title != null && result.title!.isNotEmpty) {
+        _titleController.text = result.title!;
+      }
+      if (result.amount != null && result.amount! > 0) {
+        _amountController.text = result.amount!.toStringAsFixed(2);
+      }
+      if (result.date != null) {
+        setState(() => _dueDate = result.date!);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.title != null || result.amount != null
+                ? 'Bill details auto-filled from scan!'
+                : 'Scanned text, but could not detect exact fields.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to scan image: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
+    }
+  }
+
+  void _showScanSourceDialog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded),
+              title: const Text('Take Photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _scanReceipt(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _scanReceipt(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -222,13 +298,29 @@ class _ReminderFormSheetState extends State<_ReminderFormSheet> {
                 ),
               ),
               const SizedBox(height: 16),
-              Text(
-                widget.reminder == null ? 'Add Bill Reminder' : 'Edit Bill Reminder',
-                style: TextStyle(
-                  color: colorScheme.onSurface,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    widget.reminder == null ? 'Add Bill Reminder' : 'Edit Bill Reminder',
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isScanning ? null : _showScanSourceDialog,
+                    icon: _isScanning
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.document_scanner_rounded, size: 18),
+                    label: Text(_isScanning ? 'Scanning...' : 'Scan Bill'),
+                  ),
+                ],
               ),
               const SizedBox(height: 14),
               Wrap(

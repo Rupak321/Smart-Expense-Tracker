@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "localeAliases": {
+    "mom": ["mom", "mother", "aama", "ama", "aama le", "aama lai"],
+    "dad": ["dad", "father", "buwa", "baba", "buwa le"],
+    "brother": ["brother", "bhai", "dai"],
+    "sister": ["sister", "didi", "bahini"]
+  },
+  "verbDirectionPairs": [
+    {
+      "pattern": "\\b(gave|give|sent|send|paid|pay|transferred|transfer)\\s+(to\\s+)?(me|mom|mother|dad|father|brother|sister|friend|family|aama|buwa|bhai|didi|bahini)\\b",
+      "direction": "expense",
+      "confidence": 0.9,
+      "reason": "The verb indicates money left the user's wallet."
+    },
+    {
+      "pattern": "\\b(gave|give|sent|send|paid|pay|transferred|transfer)\\s+(me|mom|mother|dad|father|brother|sister|friend|family|aama|buwa|bhai|didi|bahini)\\b",
+      "direction": "income",
+      "confidence": 0.9,
+      "reason": "The verb indicates money entered the user's wallet."
+    }
+  ],
+  "relationPatterns": [
+    {
+      "pattern": "\\b(mom|mother|aama|ama|dad|father|buwa|baba|brother|bhai|sister|didi|bahini|friend|family)\\s+(gave|sent|paid|transferred|send)\\s+(me|my|malai|ma)\\b",
+      "direction": "income",
+      "confidence": 0.95,
+      "reason": "The other party gave money to the user."
+    },
+    {
+      "pattern": "\\b(me|my|malai|maile)\\s+(gave|send|sent|paid|transferred)\\s+(mom|mother|aama|ama|dad|father|buwa|baba|brother|bhai|sister|didi|bahini|friend|family)\\b",
+      "direction": "expense",
+      "confidence": 0.95,
+      "reason": "The user gave money to the other party."
+    },
+    {
+      "pattern": "\\b(from|received from|refund from|cash from)\\s+(mom|mother|aama|ama|dad|father|buwa|baba|brother|bhai|sister|didi|bahini|friend|family)\\b",
+      "direction": "income",
+      "confidence": 0.95,
+      "reason": "The sentence says money came from the other party."
+    },
+    {
+      "pattern": "\\b(to|for)\\s+(mom|mother|aama|ama|dad|father|buwa|baba|brother|bhai|sister|didi|bahini|friend|family)\\b",
+      "direction": "expense",
+      "confidence": 0.9,
+      "reason": "The transaction is directed toward the other party."
+    },
+    {
+      "pattern": "\\b(aama|buwa|bhai|didi|bahini|malai|maile)\\s+le\\s+paisa\\s+diyo\\b",
+      "direction": "income",
+      "confidence": 0.95,
+      "reason": "The Nepali phrasing indicates money came to the user."
+    },
+    {
+      "pattern": "\\b(maile|malai)\\s+paisa\\s+dincha\\b",
+      "direction": "expense",
+      "confidence": 0.95,
+      "reason": "The Nepali phrasing indicates money left the user's wallet."
+    }
+  ],
+  "actorAliases": {
+    "mom": ["income"],
+    "dad": ["income"],
+    "aama": ["income"],
+    "buwa": ["income"]
+  },
+  "categories": [
+    {"pattern": "salary|pay|paycheck|income", "category": "Income - Salary"},
+    {"pattern": "food|restaurant|lunch|dinner|breakfast|tea|coffee", "category": "Food & Dining"},
+    {"pattern": "rent|emi|bill|electric|water|internet|mobile", "category": "Bills & Utilities"},
+    {"pattern": "travel|transport|bus|taxi|fuel|uber", "category": "Travel"},
+    {"pattern": "shopping|groceries|grocery|market", "category": "Shopping"},
+    {"pattern": "family|mom|dad|aama|buwa", "category": "Income - Family Support"}
+  ]
+}

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:convert';
 import 'dart:ui' as ui;
@@ -12,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../../core/models/expense_model.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../services/financial_report_service.dart';
 import '../../../services/user_data_service.dart';
 import 'all_expenses_screen.dart';
 
@@ -19,6 +21,336 @@ class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
 
   static const _ink = Color(0xFF1A1A2E);
+
+  static void _showAnalyticsReportOptions(BuildContext context) {
+    final theme = Theme.of(context);
+    final stableContext = context;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Generate Financial Report',
+                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choose report options:',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            _ReportOptionButton(
+              icon: Icons.date_range,
+              title: 'Last 7 Days',
+              subtitle: 'Weekly spending analysis',
+              onTap: () => _generateAnalyticsReport(stableContext, forMonths: 0),
+            ),
+            _ReportOptionButton(
+              icon: Icons.calendar_today,
+              title: 'Month to Date',
+              subtitle: 'Current month summary',
+              onTap: () => _generateAnalyticsReport(stableContext, forMonths: 1),
+            ),
+            _ReportOptionButton(
+              icon: Icons.timeline,
+              title: 'Last 3 Months',
+              subtitle: 'Quarterly financial review',
+              onTap: () => _generateAnalyticsReport(stableContext, forMonths: 3),
+            ),
+            _ReportOptionButton(
+              icon: Icons.library_books,
+              title: 'All Time',
+              subtitle: 'Comprehensive financial report',
+              onTap: () => _generateAnalyticsReport(stableContext, forMonths: null),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Future<void> _generateAnalyticsReport(BuildContext context, {int? forMonths}) async {
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final scaffold = ScaffoldMessenger.of(context);
+
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
+
+    unawaited(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => const AlertDialog(
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(
+                child: Text('Generating report...'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final reportContent = await FinancialReportService.generateProfessionalReport(
+        forMonths: forMonths,
+        reportType: 'financial',
+      );
+
+      if (!context.mounted) return;
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+      _showAnalyticsReportResult(context, reportContent, forMonths);
+    } catch (e) {
+      if (!context.mounted) return;
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+      scaffold.showSnackBar(
+        SnackBar(
+          content: Text('Failed to generate report: ${e.toString()}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
+  static void _showAnalyticsReportResult(BuildContext context, String reportContent, int? forMonths) {
+    final theme = Theme.of(context);
+    final scaffold = ScaffoldMessenger.of(context);
+
+    void openInAppPreview() {
+      scaffold.hideCurrentSnackBar();
+      final previewText = FinancialReportService.sanitizeReportForDisplay(reportContent, maxLength: 2200);
+      showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.visibility_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  forMonths == 0 ? 'Weekly Report Preview' :
+                  forMonths == 1 ? 'Monthly Report Preview' :
+                  forMonths == 3 ? 'Quarterly Report Preview' :
+                  'Comprehensive Report Preview',
+                  style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 520,
+            height: 420,
+            child: MarkdownBody(
+              data: previewText,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(fontSize: 14, height: 1.5, color: theme.colorScheme.onSurface),
+                h1: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: theme.colorScheme.onSurface),
+                h2: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface),
+                h3: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface),
+                listBullet: TextStyle(color: theme.colorScheme.primary),
+                strong: TextStyle(fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await FinancialReportService.shareReport(forMonths: forMonths);
+              },
+              icon: const Icon(Icons.share),
+              label: const Text('Share Report'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Future<void> downloadPdf() async {
+      scaffold.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              ),
+              SizedBox(width: 12),
+              Text('Generating PDF...'),
+            ],
+          ),
+          duration: Duration(seconds: 60),
+        ),
+      );
+
+      try {
+        final pdfFile = await FinancialReportService.generatePDFReport(forMonths: forMonths);
+        if (!context.mounted) return;
+
+        scaffold.hideCurrentSnackBar();
+        scaffold.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text('Report saved: ${pdfFile.path.split('/').last}'),
+                ),
+                IconButton(
+                  onPressed: () {
+                    scaffold.hideCurrentSnackBar();
+                    scaffold.showSnackBar(
+                      SnackBar(
+                        content: const Text('PDF saved successfully!'),
+                        action: SnackBarAction(
+                          label: 'Share',
+                          onPressed: () async {
+                            scaffold.hideCurrentSnackBar();
+                            await FinancialReportService.shareReport(forMonths: forMonths);
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.share, color: Colors.white, size: 18),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green[700],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        scaffold.hideCurrentSnackBar();
+        scaffold.showSnackBar(
+          SnackBar(
+            content: Text('Failed to generate PDF: ${e.toString()}'),
+            backgroundColor: theme.colorScheme.error,
+          ),
+        );
+      }
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                forMonths == 0 ? 'Weekly Report' :
+                forMonths == 1 ? 'Monthly Report' :
+                forMonths == 3 ? 'Quarterly Report' :
+                'Comprehensive Financial Report',
+                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: openInAppPreview,
+                      icon: const Icon(Icons.visibility_rounded),
+                      label: const Text('View in App'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: downloadPdf,
+                      icon: const Icon(Icons.download_rounded),
+                      label: const Text('Download PDF'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outline),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _AnalyticsReportPreview(
+                      title: 'Report Content',
+                      icon: Icons.description,
+                      subtitle: 'Preview the full generated report',
+                      onTap: openInAppPreview,
+                    ),
+                    const SizedBox(height: 12),
+                    _AnalyticsReportPreview(
+                      title: 'Download PDF',
+                      icon: Icons.picture_as_pdf,
+                      subtitle: 'Save a professional PDF copy',
+                      onTap: () => downloadPdf(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +417,7 @@ class AnalyticsScreen extends StatelessWidget {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 sliver: SliverList.separated(
                   itemCount: categorySlices.length,
                   separatorBuilder: (context, index) =>
@@ -98,6 +430,22 @@ class AnalyticsScreen extends StatelessWidget {
                   },
                 ),
               ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                child: FilledButton.icon(
+                  onPressed: () => _showAnalyticsReportOptions(context),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.picture_as_pdf_rounded),
+                  label: const Text('Generate Report'),
+                ),
+              ),
+            ),
           ],
         );
       },
@@ -467,6 +815,40 @@ ${recent.isEmpty ? '- No transactions yet' : recent}
                       ),
                 ),
               ),
+              // Generate Report Button - Enhanced button for comprehensive report generation
+              Container(
+                margin: const EdgeInsets.only(left: 8),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _showReportOptions(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.picture_as_pdf, size: 16, color: colorScheme.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Generate Report',
+                            style: TextStyle(
+                              color: colorScheme.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           if (!_hasGroqApiKey) ...[
@@ -564,6 +946,334 @@ ${recent.isEmpty ? '- No transactions yet' : recent}
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  // Show report options dialog
+  void _showReportOptions(BuildContext context) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Generate Financial Report',
+                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Choose report options:',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            _ReportOptionButton(
+              icon: Icons.date_range,
+              title: 'Last 7 Days',
+              subtitle: 'Weekly spending analysis',
+              onTap: () => _generateReport(context, forMonths: 0),
+            ),
+            _ReportOptionButton(
+              icon: Icons.calendar_today,
+              title: 'Month to Date',
+              subtitle: 'Current month summary',
+              onTap: () => _generateReport(context, forMonths: 1),
+            ),
+            _ReportOptionButton(
+              icon: Icons.timeline,
+              title: 'Last 3 Months',
+              subtitle: 'Quarterly financial review',
+              onTap: () => _generateReport(context, forMonths: 3),
+            ),
+            _ReportOptionButton(
+              icon: Icons.library_books,
+              title: 'All Time',
+              subtitle: 'Comprehensive financial report',
+              onTap: () => _generateReport(context, forMonths: null),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _generateReport(BuildContext context, {int? forMonths}) async {
+    final nav = Navigator.of(context, rootNavigator: true);
+    final scaffold = ScaffoldMessenger.of(context);
+
+    if (nav.canPop()) {
+      nav.pop();
+    }
+
+    unawaited(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => const AlertDialog(
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(
+                child: Text('Generating report...'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final reportContent = await FinancialReportService.generateProfessionalReport(
+        forMonths: forMonths,
+        reportType: 'financial',
+      );
+
+      if (!mounted) return;
+      if (nav.canPop()) {
+        nav.pop();
+      }
+      _showReportResult(context, reportContent, forMonths);
+    } catch (e) {
+      if (!mounted) return;
+      if (nav.canPop()) {
+        nav.pop();
+      }
+      scaffold.showSnackBar(
+        SnackBar(
+          content: Text('Failed to generate report: ${e.toString()}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
+  void _showReportResult(BuildContext context, String reportContent, int? forMonths) {
+    final theme = Theme.of(context);
+    final scaffold = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                forMonths == 0 ? 'Weekly Report' :
+                forMonths == 1 ? 'Monthly Report' :
+                forMonths == 3 ? 'Quarterly Report' :
+                'Comprehensive Financial Report',
+                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outline),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildReportPreview('Report Content', Icons.description, () {
+                      // Show full report
+                      scaffold.hideCurrentSnackBar();
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: Row(
+                            children: [
+                              Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  forMonths == 0 ? 'Weekly' :
+                                  forMonths == 1 ? 'Monthly' :
+                                  forMonths == 3 ? 'Quarterly' :
+                                  'Comprehensive Report',
+                                  style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface),
+                                ),
+                              ),
+                            ],
+                          ),
+                          content: Container(
+                            width: double.maxFinite,
+                            height: 400,
+                            child: MarkdownBody(data: reportContent),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
+                            ),
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                Navigator.of(context).pop(); // Close preview
+                                await FinancialReportService.shareReport(forMonths: forMonths);
+                              },
+                              icon: const Icon(Icons.share),
+                              label: const Text('Share Report'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 12),
+                    _buildReportPreview('Download PDF', Icons.picture_as_pdf, () async {
+                      scaffold.showSnackBar(
+                        const SnackBar(
+                          content: Row(
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              ),
+                              const SizedBox(width: 12),
+                              Text('Generating PDF...'),
+                            ],
+                          ),
+                          duration: Duration(seconds: 60),
+                        ),
+                      );
+
+                      try {
+                        final pdfFile = await FinancialReportService.generatePDFReport(forMonths: forMonths);
+                        if (!mounted) return;
+
+                        scaffold.hideCurrentSnackBar();
+                        scaffold.showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.check_circle, color: Colors.white),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text('Report saved: ${pdfFile.path.split('/').last}'),
+                                ),
+                                IconButton(
+                                  onPressed: () {
+                                    scaffold.hideCurrentSnackBar();
+                                    scaffold.showSnackBar(
+                                      SnackBar(
+                                        content: const Text('PDF saved successfully!'),
+                                        action: SnackBarAction(
+                                          label: 'Share',
+                                          onPressed: () async {
+                                            scaffold.hideCurrentSnackBar();
+                                            await FinancialReportService.shareReport(forMonths: forMonths);
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.share, color: Colors.white, size: 18),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: Colors.green[700],
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+                        scaffold.hideCurrentSnackBar();
+                        scaffold.showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to generate PDF: ${e.toString()}'),
+                            backgroundColor: theme.colorScheme.error,
+                          ),
+                        );
+                      }
+                    }),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReportPreview(String title, IconData icon, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.colorScheme.outline),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.primary, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Generate CA-style professional report with AI insights',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+              size: 20,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1792,4 +2502,140 @@ class _TrendPoint {
   final int paisa;
 
   const _TrendPoint({required this.label, required this.paisa});
+}
+
+class _AnalyticsReportPreview extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _AnalyticsReportPreview({
+    required this.title,
+    required this.icon,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.colorScheme.outline),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.primary, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              color: theme.colorScheme.onSurfaceVariant,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReportOptionButton extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ReportOptionButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: colorScheme.outline.withValues(alpha: 0.5)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: colorScheme.primary, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

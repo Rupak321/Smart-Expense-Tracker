@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/models/ai_chat_message.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/models/financial_record_action.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../core/parser/transaction_parser_service.dart';
 import '../../../services/ai_financial_assistant_service.dart';
+import '../../../services/user_data_service.dart';
 import '../../../services/user_settings_service.dart';
 
 class AiFinancialAssistantScreen extends StatefulWidget {
@@ -183,6 +186,29 @@ class _AiFinancialAssistantScreenState
     _scrollToBottom();
 
     try {
+      final parser = TransactionParserService();
+      final parsed = await parser.parse(text);
+      if (parsed.type != TransactionType.unknown && parsed.confidence >= 0.85) {
+        final newExpense = ExpenseModel(
+          id: Uuid().v4(),
+          title: parsed.title,
+          amount: parsed.amount,
+          category: parsed.category,
+          date: DateTime.now(),
+          isExpense: parsed.type == TransactionType.expense,
+        );
+        await UserDataService.addTransaction(newExpense);
+        final assistantMessage = AiFinancialAssistantService.assistantMessage(
+          'Saved ${parsed.type == TransactionType.expense ? 'expense' : 'income'}: ${parsed.title} for ${MoneyUtils.formatAmount(parsed.amount)}.',
+        );
+        final updatedMessages = [...nextMessages, assistantMessage];
+        await AiFinancialAssistantService.saveMessages(session.id, updatedMessages);
+        if (mounted) {
+          setState(() => _messages = updatedMessages);
+        }
+        return;
+      }
+
       final actionResult =
           await AiFinancialAssistantService.detectFinancialAction(
             question: text,

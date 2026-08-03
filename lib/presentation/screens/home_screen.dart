@@ -6,11 +6,12 @@ import '../../../core/components/summary_item.dart';
 import '../../../core/components/transaction_tile.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/models/user_profile_model.dart';
+import '../../../core/parser/transaction_parser_service.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../core/utils/profile_image_storage.dart';
-import '../../../services/ai_expense_service.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_data_service.dart';
+import 'recurring_expenses_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final ImagePicker _imagePicker = ImagePicker();
   String? _profileImagePath;
   bool _profilePromptShown = false;
+  bool _recurringCatchUpStarted = false;
 
   @override
   void dispose() {
@@ -45,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _runRecurringCatchUpOnce();
     return StreamBuilder<List<ExpenseModel>>(
       stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
@@ -72,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(
                 child: _buildSmartExpenseInput(context),
               ),
+              const SliverToBoxAdapter(child: UpcomingRecurringSection()),
               SliverToBoxAdapter(child: _buildSectionHeader(context)),
               if (transactions.isEmpty)
                       SliverToBoxAdapter(
@@ -318,17 +322,18 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final result = await AiExpenseService.parseExpense(text);
+      final parser = TransactionParserService();
+      final result = await parser.parse(text);
       if (!mounted) return;
 
-      if (result != null && result.amount > 0) {
+      if (result.amount > 0) {
         final newExpense = ExpenseModel(
           id: const Uuid().v4(),
           title: result.title,
           amount: result.amount,
           category: result.category,
           date: DateTime.now(),
-          isExpense: result.isExpense,
+          isExpense: result.type == TransactionType.expense,
         );
 
         await UserDataService.addTransaction(newExpense);
@@ -338,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Added ${result.isExpense ? 'expense' : 'income'}: Rs. ${result.amount}',
+              'Added ${result.type == TransactionType.expense ? 'expense' : 'income'}: Rs. ${result.amount}',
             ),
             backgroundColor: Theme.of(context).colorScheme.primary,
             behavior: SnackBarBehavior.floating,
@@ -394,9 +399,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
           ),
           TextButton(
-            onPressed: () {},
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RecurringExpensesScreen()),
+            ),
             child: Text(
-              'See all',
+              'Recurring',
               style: TextStyle(color: Theme.of(context).colorScheme.primary),
             ),
           ),
@@ -733,5 +740,27 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(shape: BoxShape.circle, color: (color ?? Colors.white).withValues(alpha: opacity)),
       ),
     );
+  }
+
+  void _runRecurringCatchUpOnce() {
+    if (_recurringCatchUpStarted) {
+      return;
+    }
+    _recurringCatchUpStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final generated = await UserDataService.runRecurringCatchUp();
+        if (!mounted || generated == 0) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Added $generated recurring transaction${generated == 1 ? '' : 's'}',
+            ),
+          ),
+        );
+      } catch (_) {}
+    });
   }
 }

@@ -477,38 +477,65 @@ class AnalyticsScreen extends StatelessWidget {
       );
     }
 
-    Color getColorForCategory(String category) {
+    // Biggest first, so the largest slices get their natural category colour
+    // and only the long tail falls back to the palette.
+    final entries = totals.entries.toList()
+      ..sort((first, second) => second.value.compareTo(first.value));
+
+    // Two categories used to be able to land on the same colour — "Food -
+    // Restaurant" and "Food - Miscellaneous" both matched 'food' and came out
+    // identical in the donut and the legend. Colours are claimed once now.
+    final claimed = <Color>{};
+
+    Color? preferredColor(String category) {
       final lower = category.toLowerCase();
-      if (lower.contains('food') || lower.contains('restaurant')) return const Color(0xFFE76F51);
-      if (lower.contains('travel') || lower.contains('transport')) return const Color(0xFF457B9D);
-      if (lower.contains('shopping') || lower.contains('clothes')) return const Color(0xFFE9C46A);
-      if (lower.contains('bill') || lower.contains('utilit')) return const Color(0xFF2A9D8F);
-      if (lower.contains('health') || lower.contains('medic')) return const Color(0xFFE63946);
-      if (lower.contains('entertain') || lower.contains('movie')) return const Color(0xFF9B5DE5);
-      
-      // Deterministic fallback color based on string hash
-      final colors = [
-        const Color(0xFFF4A261),
-        const Color(0xFF264653),
-        const Color(0xFF00B4D8),
-        const Color(0xFF8338EC),
-        const Color(0xFFFF006E),
-        const Color(0xFF38B000),
-      ];
-      return colors[category.hashCode.abs() % colors.length];
+      if (lower.contains('food') ||
+          lower.contains('restaurant') ||
+          lower.contains('grocer')) {
+        return AppColorRoles.chartPalette[0];
+      }
+      if (lower.contains('travel') || lower.contains('transport')) {
+        return AppColorRoles.chartPalette[1];
+      }
+      if (lower.contains('shopping') || lower.contains('clothes')) {
+        return AppColorRoles.chartPalette[2];
+      }
+      if (lower.contains('bill') || lower.contains('utilit')) {
+        return AppColorRoles.chartPalette[3];
+      }
+      if (lower.contains('health') || lower.contains('medic')) {
+        return AppColorRoles.chartPalette[4];
+      }
+      if (lower.contains('entertain') || lower.contains('movie')) {
+        return AppColorRoles.chartPalette[5];
+      }
+      return null;
     }
 
-    final slices = totals.entries.map((entry) {
-      return _CategorySlice(
-        label: entry.key,
-        paisa: entry.value,
-        color: getColorForCategory(entry.key),
-        icon: _iconForCategory(entry.key),
-      );
-    }).toList();
+    Color colorFor(String category) {
+      final preferred = preferredColor(category);
+      if (preferred != null && claimed.add(preferred)) {
+        return preferred;
+      }
+      for (final candidate in AppColorRoles.chartPalette) {
+        if (claimed.add(candidate)) {
+          return candidate;
+        }
+      }
+      // More categories than palette entries: fall back to a stable pick.
+      return AppColorRoles.chartPalette[category.hashCode.abs() %
+          AppColorRoles.chartPalette.length];
+    }
 
-    slices.sort((first, second) => second.paisa.compareTo(first.paisa));
-    return slices;
+    return [
+      for (final entry in entries)
+        _CategorySlice(
+          label: entry.key,
+          paisa: entry.value,
+          color: colorFor(entry.key),
+          icon: _iconForCategory(entry.key),
+        ),
+    ];
   }
 
   List<_TrendPoint> _buildRecentTrend(

@@ -58,6 +58,40 @@ extension AppColorRoles on ColorScheme {
   /// Hairline border for cards and tiles.
   Color get appBorder => outlineVariant;
 
+  /// Fill for the big balance / profile hero cards.
+  ///
+  /// M3 makes `primary` a pale pastel in dark mode, so a full-bleed primary
+  /// card turns into a glaring slab. Dark mode uses the container roles, which
+  /// are the deep tones intended for large fills.
+  List<Color> get appHeroGradient => _isLight
+      ? [primary, Color.lerp(primary, tertiary, 0.42)!]
+      : [
+          primaryContainer,
+          Color.lerp(primaryContainer, tertiaryContainer, 0.45)!,
+        ];
+
+  /// Foreground for anything sitting on [appHeroGradient].
+  Color get appOnHero => _isLight ? onPrimary : onPrimaryContainer;
+
+  /// Categorical palette for charts.
+  ///
+  /// Mid-luminance on purpose: these have to stay legible against both the
+  /// near-white light background and the near-black dark one.
+  static const List<Color> chartPalette = [
+    Color(0xFFE76F51), // warm orange
+    Color(0xFF4EA8DE), // blue
+    Color(0xFFE9C46A), // amber
+    Color(0xFF2A9D8F), // teal
+    Color(0xFFEF476F), // pink red
+    Color(0xFF9B5DE5), // purple
+    Color(0xFF06D6A0), // mint
+    Color(0xFFF4A261), // sand
+    Color(0xFF64B5F6), // sky
+    Color(0xFFFF8FA3), // rose
+    Color(0xFF74C365), // green
+    Color(0xFFA0A7FF), // periwinkle
+  ];
+
   /// Money going out.
   Color get appExpense => _isLight ? const Color(0xFFD62828) : const Color(0xFFFF6B6B);
 

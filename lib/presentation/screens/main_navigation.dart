@@ -140,22 +140,23 @@ class _MainNavigationState extends State<MainNavigation>
             ),
           ),
         ),
-        floatingActionButton: AnimatedScale(
-          scale: _showsFab ? 1 : 0,
-          duration: AppTokens.motionFast,
-          curve: Curves.easeOutBack,
-          child: FloatingActionButton(
-            onPressed: _showsFab ? _openAddTransaction : null,
-            tooltip: 'Add transaction',
-            shape: const CircleBorder(),
-            child: const Icon(Icons.add_rounded, size: 30),
-          ),
-        ),
+        // Built conditionally rather than scaled to zero: a scaled-down FAB
+        // still reports full size, so the notch stayed cut out of the bar on
+        // tabs that have no button. Scaffold animates the swap for us.
+        floatingActionButton: _showsFab
+            ? FloatingActionButton(
+                onPressed: _openAddTransaction,
+                tooltip: 'Add transaction',
+                shape: const CircleBorder(),
+                child: const Icon(Icons.add_rounded, size: 30),
+              )
+            : null,
         floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: _BottomNavBar(
           destinations: _destinations,
           selectedIndex: _selectedIndex,
           onSelected: _select,
+          showNotch: _showsFab,
         ),
       ),
     );
@@ -187,11 +188,13 @@ class _BottomNavBar extends StatelessWidget {
   final List<_NavDestination> destinations;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final bool showNotch;
 
   const _BottomNavBar({
     required this.destinations,
     required this.selectedIndex,
     required this.onSelected,
+    required this.showNotch,
   });
 
   @override
@@ -199,7 +202,7 @@ class _BottomNavBar extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return BottomAppBar(
-      shape: const CircularNotchedRectangle(),
+      shape: showNotch ? const CircularNotchedRectangle() : null,
       notchMargin: 8,
       color: colorScheme.appCard,
       elevation: 0,

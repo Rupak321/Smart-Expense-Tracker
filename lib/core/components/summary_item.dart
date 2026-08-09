@@ -28,10 +28,10 @@ class SummaryItem extends StatelessWidget {
             width: 32,
             height: 32,
             decoration: BoxDecoration(
-              color: colorScheme.onPrimary.withValues(alpha: 0.18),
+              color: colorScheme.appOnHero.withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: colorScheme.onPrimary, size: 16),
+            child: Icon(icon, color: colorScheme.appOnHero, size: 16),
           ),
           const SizedBox(width: AppTokens.gapSm),
           Expanded(
@@ -44,7 +44,7 @@ class SummaryItem extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: colorScheme.onPrimary.withValues(alpha: 0.82),
+                    color: colorScheme.appOnHero.withValues(alpha: 0.85),
                     fontSize: 12,
                     height: 1.2,
                     fontWeight: FontWeight.w600,
@@ -60,7 +60,7 @@ class SummaryItem extends StatelessWidget {
                       amount,
                       maxLines: 1,
                       style: TextStyle(
-                        color: colorScheme.onPrimary,
+                        color: colorScheme.appOnHero,
                         fontSize: 16,
                         height: 1.2,
                         fontWeight: FontWeight.w800,

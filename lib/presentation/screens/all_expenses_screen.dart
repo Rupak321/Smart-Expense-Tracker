@@ -226,10 +226,7 @@ class _Header extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                colorScheme.primary,
-                Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.42)!,
-              ],
+              colors: colorScheme.appHeroGradient,
             ),
             borderRadius: BorderRadius.circular(AppTokens.radiusLg),
           ),
@@ -239,12 +236,12 @@ class _Header extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: colorScheme.onPrimary.withValues(alpha: 0.16),
+                  color: colorScheme.appOnHero.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(AppTokens.radiusMd),
                 ),
                 child: Icon(
                   Icons.trending_down_rounded,
-                  color: colorScheme.onPrimary,
+                  color: colorScheme.appOnHero,
                 ),
               ),
               const SizedBox(width: AppTokens.gapLg),
@@ -256,7 +253,7 @@ class _Header extends StatelessWidget {
                     Text(
                       'Total spent',
                       style: TextStyle(
-                        color: colorScheme.onPrimary.withValues(alpha: 0.8),
+                        color: colorScheme.appOnHero.withValues(alpha: 0.85),
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                       ),
@@ -269,7 +266,7 @@ class _Header extends StatelessWidget {
                         total,
                         maxLines: 1,
                         style: TextStyle(
-                          color: colorScheme.onPrimary,
+                          color: colorScheme.appOnHero,
                           fontSize: 25,
                           fontWeight: FontWeight.w900,
                           height: 1.1,
@@ -286,13 +283,13 @@ class _Header extends StatelessWidget {
                   vertical: AppTokens.gapXs + 2,
                 ),
                 decoration: BoxDecoration(
-                  color: colorScheme.onPrimary.withValues(alpha: 0.16),
+                  color: colorScheme.appOnHero.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(AppTokens.radiusPill),
                 ),
                 child: Text(
                   '$count',
                   style: TextStyle(
-                    color: colorScheme.onPrimary,
+                    color: colorScheme.appOnHero,
                     fontSize: 16,
                     fontWeight: FontWeight.w900,
                   ),

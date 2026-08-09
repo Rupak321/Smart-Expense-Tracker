@@ -867,22 +867,19 @@ class _EmptyAssistantState extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                colorScheme.primary,
-                Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.42)!,
-              ],
+              colors: colorScheme.appHeroGradient,
             ),
             borderRadius: BorderRadius.circular(AppTokens.radiusLg),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.auto_awesome_rounded, color: colorScheme.onPrimary),
+              Icon(Icons.auto_awesome_rounded, color: colorScheme.appOnHero),
               const SizedBox(height: 12),
               Text(
                 'Ask anything about your money.',
                 style: TextStyle(
-                  color: colorScheme.onPrimary,
+                  color: colorScheme.appOnHero,
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
                 ),
@@ -891,7 +888,7 @@ class _EmptyAssistantState extends StatelessWidget {
               Text(
                 'Each chat keeps its own memory, so follow-up questions make sense.',
                 style: TextStyle(
-                  color: colorScheme.onPrimary.withValues(alpha: 0.82),
+                  color: colorScheme.appOnHero.withValues(alpha: 0.85),
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),

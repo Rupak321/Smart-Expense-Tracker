@@ -337,10 +337,7 @@ class _ProfileSummary extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  colorScheme.primary,
-                  Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.42)!,
-                ],
+                colors: colorScheme.appHeroGradient,
               ),
               borderRadius: BorderRadius.circular(AppTokens.radiusLg),
             ),
@@ -355,7 +352,7 @@ class _ProfileSummary extends StatelessWidget {
                         width: 68,
                         height: 68,
                         decoration: BoxDecoration(
-                          color: colorScheme.onPrimary.withValues(alpha: 0.18),
+                          color: colorScheme.appOnHero.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
                           image: hasProfileImage
                               ? DecorationImage(
@@ -371,7 +368,7 @@ class _ProfileSummary extends StatelessWidget {
                         Text(
                           initial,
                           style: TextStyle(
-                            color: colorScheme.onPrimary,
+                            color: colorScheme.appOnHero,
                             fontSize: 24,
                             fontWeight: FontWeight.w800,
                           ),
@@ -386,7 +383,7 @@ class _ProfileSummary extends StatelessWidget {
                             color: colorScheme.appCard,
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: colorScheme.onPrimary,
+                              color: colorScheme.appOnHero,
                               width: 1.5,
                             ),
                           ),
@@ -410,7 +407,7 @@ class _ProfileSummary extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: colorScheme.onPrimary,
+                            color: colorScheme.appOnHero,
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
                           ),
@@ -427,7 +424,7 @@ class _ProfileSummary extends StatelessWidget {
                   ),
                   Icon(
                     Icons.chevron_right_rounded,
-                    color: colorScheme.onPrimary.withValues(alpha: 0.7),
+                    color: colorScheme.appOnHero.withValues(alpha: 0.7),
                   ),
                 ],
               ),
@@ -447,13 +444,13 @@ class _SummaryLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onPrimary = Theme.of(
+    final onHero = Theme.of(
       context,
-    ).colorScheme.onPrimary.withValues(alpha: 0.85);
+    ).colorScheme.appOnHero.withValues(alpha: 0.85);
 
     return Row(
       children: [
-        Icon(icon, color: onPrimary, size: 14),
+        Icon(icon, color: onHero, size: 14),
         const SizedBox(width: AppTokens.gapXs + 2),
         Expanded(
           child: Text(
@@ -461,7 +458,7 @@ class _SummaryLine extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: onPrimary,
+              color: onHero,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),

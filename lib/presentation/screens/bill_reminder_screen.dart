@@ -58,14 +58,7 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        colorScheme.primary,
-                        Color.lerp(
-                          colorScheme.primary,
-                          colorScheme.tertiary,
-                          0.42,
-                        )!,
-                      ],
+                      colors: colorScheme.appHeroGradient,
                     ),
                     borderRadius: BorderRadius.circular(AppTokens.radiusLg),
                   ),
@@ -75,12 +68,12 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
                         width: 46,
                         height: 46,
                         decoration: BoxDecoration(
-                          color: colorScheme.onPrimary.withValues(alpha: 0.16),
+                          color: colorScheme.appOnHero.withValues(alpha: 0.16),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
                           Icons.auto_awesome_rounded,
-                          color: colorScheme.onPrimary,
+                          color: colorScheme.appOnHero,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -91,7 +84,7 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
                             Text(
                               'AI bill alerts',
                               style: TextStyle(
-                                color: colorScheme.onPrimary,
+                                color: colorScheme.appOnHero,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -100,7 +93,7 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
                             Text(
                               'Get reminders for electricity, internet, rent, EMI and other payments.',
                               style: TextStyle(
-                                color: colorScheme.onPrimary.withValues(alpha: 0.82),
+                                color: colorScheme.appOnHero.withValues(alpha: 0.85),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),

@@ -214,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
           controller: _smartExpenseController,
           textInputAction: TextInputAction.done,
           decoration: InputDecoration(
-            hintText: 'Quick add — "salary 45k" or "450 food"',
+            hintText: 'Quick add — try "450 lunch"',
             filled: false,
             hintStyle: TextStyle(
               color: colorScheme.onSurfaceVariant,
@@ -707,15 +707,12 @@ class _BalanceHeader extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            colorScheme.primary,
-            Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.42)!,
-          ],
+          colors: colorScheme.appHeroGradient,
         ),
         borderRadius: BorderRadius.circular(AppTokens.radiusXl),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.primary.withValues(alpha: 0.28),
+            color: colorScheme.primary.withValues(alpha: 0.20),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -728,12 +725,12 @@ class _BalanceHeader extends StatelessWidget {
             Positioned(
               top: -34,
               right: 18,
-              child: _Bubble(size: 108, color: colorScheme.onPrimary),
+              child: _Bubble(size: 108, color: colorScheme.appOnHero),
             ),
             Positioned(
               bottom: -28,
               right: 76,
-              child: _Bubble(size: 78, color: colorScheme.onPrimary),
+              child: _Bubble(size: 78, color: colorScheme.appOnHero),
             ),
             Padding(
               padding: const EdgeInsets.all(20),
@@ -743,7 +740,7 @@ class _BalanceHeader extends StatelessWidget {
                   Text(
                     _greeting(DateTime.now()),
                     style: TextStyle(
-                      color: colorScheme.onPrimary.withValues(alpha: 0.85),
+                      color: colorScheme.appOnHero.withValues(alpha: 0.85),
                       fontSize: 14,
                     ),
                   ),
@@ -752,7 +749,7 @@ class _BalanceHeader extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: colorScheme.onPrimary,
+                      color: colorScheme.appOnHero,
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
                     ),
@@ -763,7 +760,7 @@ class _BalanceHeader extends StatelessWidget {
                       Text(
                         'Total Balance',
                         style: TextStyle(
-                          color: colorScheme.onPrimary.withValues(alpha: 0.85),
+                          color: colorScheme.appOnHero.withValues(alpha: 0.85),
                           fontSize: 13,
                         ),
                       ),
@@ -775,7 +772,7 @@ class _BalanceHeader extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: colorScheme.onPrimary.withValues(alpha: 0.2),
+                            color: colorScheme.appOnHero.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(
                               AppTokens.radiusPill,
                             ),
@@ -783,7 +780,7 @@ class _BalanceHeader extends StatelessWidget {
                           child: Text(
                             'Overspent',
                             style: TextStyle(
-                              color: colorScheme.onPrimary,
+                              color: colorScheme.appOnHero,
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                             ),
@@ -802,7 +799,7 @@ class _BalanceHeader extends StatelessWidget {
                         MoneyUtils.formatPaisa(balancePaisa),
                         maxLines: 1,
                         style: TextStyle(
-                          color: colorScheme.onPrimary,
+                          color: colorScheme.appOnHero,
                           fontSize: 34,
                           height: 1.1,
                           fontWeight: FontWeight.w900,
@@ -812,7 +809,7 @@ class _BalanceHeader extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   Divider(
-                    color: colorScheme.onPrimary.withValues(alpha: 0.24),
+                    color: colorScheme.appOnHero.withValues(alpha: 0.24),
                     height: 1,
                   ),
                   const SizedBox(height: AppTokens.gapLg),

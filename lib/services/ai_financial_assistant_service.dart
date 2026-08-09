@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -281,9 +283,13 @@ JSON shape:
       return localReply;
     }
 
-    if (Secrets.groqApiKey.isEmpty || !Secrets.groqApiKey.startsWith('gsk_')) {
+    if (!Secrets.hasApiKey) {
+      // The old wording sent people to edit secrets.dart, which does nothing —
+      // the key is a compile-time define, so a build without it can never work
+      // no matter what that file says.
       throw Exception(
-        'Please provide a valid Groq API key in lib/core/secrets.dart',
+        'This build has no API key compiled into it. Rebuild with:\n'
+        'flutter run --dart-define-from-file=dart_defines.json',
       );
     }
 
@@ -305,22 +311,27 @@ JSON shape:
       'max_tokens': 900,
     });
 
-    final response = await http
-        .post(
-          Uri.https('api.groq.com', '/openai/v1/chat/completions'),
-          headers: {
-            'Authorization': 'Bearer ${Secrets.groqApiKey}',
-            'Content-Type': 'application/json',
-          },
-          body: payload,
-        )
-        .timeout(const Duration(seconds: 35));
+    final http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.https('api.groq.com', '/openai/v1/chat/completions'),
+            headers: {
+              'Authorization': 'Bearer ${Secrets.groqApiKey}',
+              'Content-Type': 'application/json',
+            },
+            body: payload,
+          )
+          .timeout(const Duration(seconds: 35));
+    } on TimeoutException {
+      throw Exception('The AI service took too long to answer. Try again.');
+    } on SocketException {
+      throw Exception('No internet connection reached the AI service.');
+    }
 
     final data = jsonDecode(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final error = data is Map ? data['error'] : null;
-      final message = error is Map ? error['message'] : response.body;
-      throw Exception('AI request failed: $message');
+      throw Exception(_describeApiFailure(response.statusCode, data));
     }
 
     final choices = data['choices'] as List<dynamic>?;
@@ -980,6 +991,41 @@ suggest they log a few days of spending or their latest income.
     );
 
     return buffer.toString();
+  }
+
+  /// Turns an API failure into something the user can act on.
+  ///
+  /// A raw provider message like "model_decommissioned" tells the user nothing
+  /// about what to do next, and every failure previously surfaced as the same
+  /// generic "AI request failed".
+  static String _describeApiFailure(int statusCode, dynamic data) {
+    final error = data is Map ? data['error'] : null;
+    final raw = error is Map
+        ? error['message']?.toString() ?? ''
+        : data.toString();
+    final code = error is Map ? error['code']?.toString() ?? '' : '';
+    final lower = '$raw $code'.toLowerCase();
+
+    if (statusCode == 401 || statusCode == 403) {
+      return 'The API key was rejected. It may be revoked or mistyped — '
+          'check it at console.groq.com and rebuild.';
+    }
+    if (statusCode == 429) {
+      return 'Rate limit reached on the AI service. Wait a moment and retry.';
+    }
+    if (lower.contains('decommission') ||
+        lower.contains('deprecated') ||
+        lower.contains('does not exist') ||
+        lower.contains('model_not_found')) {
+      return 'The model "${Secrets.groqModel}" is no longer available. '
+          'Set a current one with --dart-define=GROQ_MODEL=...\n\n$raw';
+    }
+    if (statusCode >= 500) {
+      return 'The AI service had a problem on its side ($statusCode). '
+          'Try again shortly.';
+    }
+    return 'AI request failed ($statusCode): '
+        '${raw.isEmpty ? 'no details returned' : raw}';
   }
 
   static String _money(int paisa) => MoneyUtils.formatPaisa(paisa);

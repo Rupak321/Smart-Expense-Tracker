@@ -50,11 +50,38 @@ A modern, intelligent personal finance management app built with Flutter. Smart 
 
 ## Configuration
 
-To enable the AI Financial Assistant, provide your Groq API key via environment variables when running or building the app:
+The AI Financial Assistant needs a Groq API key. The key is a **compile-time**
+define, so it is baked into the binary when you build — a build without it can
+never reach the API, whatever you change at runtime.
+
+Create `dart_defines.json` in the project root (it is gitignored, so it will
+not be committed):
+
+```json
+{
+  "GROQ_API_KEY": "gsk_your_key_here",
+  "GROQ_MODEL": "openai/gpt-oss-20b"
+}
+```
+
+Then run or build with it:
 
 ```bash
-flutter run --dart-define=GROQ_API_KEY=your_api_key_here
+flutter run --dart-define-from-file=dart_defines.json
+flutter build apk --release --dart-define-from-file=dart_defines.json
 ```
+
+Everything except the assistant's replies works without a key: transactions,
+analytics, reminders, and the locally computed month briefing on the assistant
+screen are all plain Dart over your own data.
+
+### Models
+
+Groq retires models periodically, and a retired model returns an error rather
+than falling back. `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` shut
+down on **16 August 2026**; the default is now `openai/gpt-oss-20b`. Check
+<https://console.groq.com/docs/deprecations> if the assistant starts reporting
+that its model is unavailable, and set a current one via `GROQ_MODEL`.
 
 ## Contributing
 

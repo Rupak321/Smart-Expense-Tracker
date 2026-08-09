@@ -94,13 +94,54 @@ class TransactionParserService {
     return normalized;
   }
 
+  /// Picks the amount out of free text.
+  ///
+  /// This used to strip every non-digit and parse whatever was left, so any
+  /// sentence with a second number silently produced a wrong figure:
+  /// "spent 500 on 2 coffees" became 5002, and "1200 rent for july 2026"
+  /// became 12002026. Now the candidates are read as separate tokens and the
+  /// obvious non-amounts are discarded.
   double _extractAmount(String input) {
-    final normalized = input.replaceAll(RegExp(r'[^0-9.\-]'), '');
-    if (normalized.isEmpty) {
+    // Dates contribute digits that are never the amount.
+    final withoutDates = input.replaceAll(
+      RegExp(r'\b\d{1,4}\s*[/-]\s*\d{1,2}\s*(?:[/-]\s*\d{1,4})?\b'),
+      ' ',
+    );
+
+    final matches = RegExp(
+      r'\d+(?:\.\d+)?',
+    ).allMatches(withoutDates).map((match) => match.group(0)!).toList();
+    if (matches.isEmpty) {
       return 0;
     }
-    final amount = double.tryParse(normalized);
-    return amount ?? 0;
+
+    final candidates = <double>[];
+    for (final token in matches) {
+      final value = double.tryParse(token);
+      if (value == null || value <= 0) continue;
+      candidates.add(value);
+    }
+    if (candidates.isEmpty) {
+      return 0;
+    }
+
+    // A bare four-digit year is almost never the amount, but only drop it if
+    // something else is available to use instead.
+    final withoutYears = candidates
+        .where((value) => !_looksLikeYear(value))
+        .toList();
+    final usable = withoutYears.isEmpty ? candidates : withoutYears;
+
+    // With several numbers left, the amount is the large one: the others are
+    // quantities ("2 coffees", "5 friends").
+    usable.sort();
+    return usable.last;
+  }
+
+  bool _looksLikeYear(double value) {
+    if (value != value.roundToDouble()) return false;
+    final rounded = value.round();
+    return rounded >= 1900 && rounded <= 2100;
   }
 
   _DirectionFacts _collectDirectionFacts(String input, Map<String, dynamic> rules) {

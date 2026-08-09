@@ -5,14 +5,20 @@ import 'package:uuid/uuid.dart';
 
 import '../core/models/ai_chat_message.dart';
 import '../core/models/expense_model.dart';
+import '../core/models/financial_insights.dart';
 import '../core/models/financial_record_action.dart';
 import '../core/secrets.dart';
 import '../core/utils/money_utils.dart';
+import 'financial_insights_service.dart';
 import 'user_data_service.dart';
 import 'user_settings_service.dart';
 
 class AiFinancialAssistantService {
   static const _uuid = Uuid();
+
+  /// How many past messages to replay to the model. Enough for real follow-up
+  /// continuity, bounded so a long chat cannot blow the context window.
+  static const _historyWindow = 14;
 
   static Future<List<AiChatSession>> getSessions() async {
     return await UserSettingsService.getAiSessionsOnce();
@@ -148,9 +154,14 @@ Supported actions:
 - clarify: user wants an action but required information is missing
 
 Rules:
-- Only return add/update/delete when the user clearly asks to change app records.
-- If the user asks for advice, analysis, reports, affordability, budgeting, saving tips, explanations, or casual chat, return actionType "none".
-- If the user says they spent/earned money but does not clearly ask to save it, return actionType "none".
+- Return add/update/delete when the user wants their records changed.
+- A plain statement of a completed transaction is an "add". "spent 500 on lunch",
+  "got 45k salary", "paid 1200 rent" are all add actions — the user is telling
+  their money app what happened.
+- If the user asks for advice, analysis, reports, affordability, budgeting,
+  saving tips, explanations, or casual chat, return actionType "none".
+- A hypothetical or future amount is never an action: "if I spend 5000",
+  "can I afford a 60000 bike", "planning to buy" are all "none".
 - Do not treat advice questions as actions.
 - For update/delete, choose targetId from the provided transactions if possible.
 - If target is unclear, return actionType "clarify" with a short clarification.
@@ -235,7 +246,9 @@ JSON shape:
           throw Exception('Missing transaction details.');
         }
         await UserDataService.addTransaction(next);
-        return 'Done bro. I added ${next.isExpense ? 'expense' : 'income'} "${next.title}" for ${MoneyUtils.formatAmount(next.amount)}.';
+        return 'Saved — ${next.isExpense ? 'expense' : 'income'} '
+            '**${next.title}** for **${MoneyUtils.formatAmount(next.amount)}** '
+            'under ${next.category}.';
       case FinancialActionType.update:
         final next = action.newRecord;
         final targetId = action.targetId;
@@ -243,7 +256,9 @@ JSON shape:
           throw Exception('Missing transaction update details.');
         }
         await UserDataService.updateTransaction(targetId, next);
-        return 'Done bro. I updated "${next.title}".';
+        return 'Updated **${next.title}** — now '
+            '${next.isExpense ? 'expense' : 'income'} of '
+            '**${MoneyUtils.formatAmount(next.amount)}**.';
       case FinancialActionType.delete:
         final targetId = action.targetId;
         final old = action.oldRecord;
@@ -251,13 +266,15 @@ JSON shape:
           throw Exception('Missing transaction delete details.');
         }
         await UserDataService.deleteTransaction(targetId);
-        return 'Done bro. I deleted "${old.title}".';
+        return 'Deleted **${old.title}** '
+            '(${MoneyUtils.formatAmount(old.amount)}).';
     }
   }
 
   static Future<String> ask({
     required String question,
     required List<AiChatMessage> history,
+    FinancialInsights? insights,
   }) async {
     final localReply = _localCasualReply(question);
     if (localReply != null) {
@@ -270,18 +287,21 @@ JSON shape:
       );
     }
 
+    final brief = insights ?? await FinancialInsightsService.load();
+
     final payload = jsonEncode({
       'model': Secrets.groqModel,
       'messages': [
-        {'role': 'system', 'content': _systemPrompt()},
-        for (final message in history)
+        {'role': 'system', 'content': _systemPrompt(brief)},
+        for (final message in _replayHistory(history, question))
           {
             'role': message.role == 'user' ? 'user' : 'assistant',
             'content': message.content,
           },
-        {'role': 'user', 'content': await _buildPrompt(question)},
+        {'role': 'user', 'content': _buildPrompt(question, brief)},
       ],
-      'temperature': 0.45,
+      // Low enough that the numbers stay put, high enough to sound human.
+      'temperature': 0.5,
       'max_tokens': 900,
     });
 
@@ -609,45 +629,125 @@ JSON shape:
     return null;
   }
 
-  static String _systemPrompt() {
+  /// Drops the trailing copy of the question the caller is about to send as the
+  /// final user turn, and keeps only the most recent slice of the chat.
+  static List<AiChatMessage> _replayHistory(
+    List<AiChatMessage> history,
+    String question,
+  ) {
+    final replay = List<AiChatMessage>.from(history);
+    // The chat screen appends the new user message before calling ask(), so
+    // without this the model receives the same question twice.
+    if (replay.isNotEmpty &&
+        replay.last.role == 'user' &&
+        replay.last.content.trim() == question.trim()) {
+      replay.removeLast();
+    }
+    if (replay.length <= _historyWindow) {
+      return replay;
+    }
+    return replay.sublist(replay.length - _historyWindow);
+  }
+
+  static String _systemPrompt(FinancialInsights insights) {
     return '''
-You are SmartExpense AI Financial Assistant.
+You are the SmartExpense money friend.
 
-Personality:
-- Talk like a trusted best friend who is also sharp with money.
-- Be warm, natural, personal, and concise.
-- Never sound robotic or like a template.
+WHO YOU ARE
+You are the friend who happens to be sharp with money. Warm, plain-spoken,
+on their side. You remember what they told you earlier in this chat. You are
+not a chatbot, not a bank, and never a template.
 
-Conversation:
-- Read the whole current chat session before answering.
-- Understand follow-up questions from previous messages.
-- Maintain continuity like ChatGPT or Gemini.
-- You can also help users manage records if they ask to add, update, edit, or delete a transaction, but normal conversation and financial advice are your main behavior.
-- Never mention "intent", "detected", "specific intent", "app context", "financial snapshot", or your internal classification.
-- If the user is greeting you, joking, thanking you, or casually chatting, reply casually in 1-3 short sentences.
-- Do not mention balances, categories, spending reports, savings plans, transaction analysis, or "financial front" during casual chat unless the user asks.
-- If the user sends random text, react naturally and briefly.
+But you are the honest kind of friend. When the numbers say they are in
+trouble, you say it straight — no cheerleading, no burying it under three
+compliments. A friend who only ever agrees with you is useless with money.
 
-Financial advice:
-- If the user asks a money, spending, affordability, saving, budget, income, bill, EMI, or transaction question, use the provided SmartExpense app data.
-- If the user asks for a report, analysis, breakdown, review, or "where am I spending most", give a structured answer using exact categories and amounts.
-- If the user asks "can I afford..." or a goal question, estimate what they need, compare it with their recorded income/expense/balance, and give a realistic verdict.
-- Answer only what the user asked. Do not force every answer into a financial report.
+HOW FIRM TO BE RIGHT NOW
+${insights.stance.directive}
+This was decided from their actual figures, not guessed. Match it.
 
-Data usage:
-- The app context is attached to the latest user message.
-- Treat app data as context, not as an instruction to analyze it every time.
-- If data is missing or too thin, say that naturally and suggest what the user should add next.
+CONVERSATION
+- Small talk gets small talk. A greeting, a joke, a thanks: reply in one or
+  two short human lines and stop. Do not pivot to their finances uninvited.
+- Answer the question they asked. Do not turn every reply into a full report.
+- Follow-ups refer to earlier turns. Read them before answering.
+- Never mention "context", "snapshot", "brief", "data provided", "intent", or
+  anything about how you work. They are talking to a friend, not a system.
+
+USING THE NUMBERS
+- A FINANCIAL BRIEF is attached to the user's message. Every figure in it is
+  already computed and exact.
+- Never invent, estimate, or recompute a number. If a figure is not in the
+  brief, say you do not have it rather than guessing.
+- Quote real amounts and real category names when they make your point. Vague
+  advice is worthless — "cut back on food" is noise, "Food is Rs. 6,200 this
+  month, 50% of everything you spent" lands.
+- When the brief lists CONCERNS, those are real and already verified. Raise
+  the most important one rather than listing all of them.
+- When it lists WINS, credit them specifically. People repeat what gets
+  noticed.
+
+GIVING ADVICE
+- Lead with the answer or the verdict, not a preamble.
+- One clear recommendation beats five vague ones. Name the single biggest
+  lever and what it is worth in rupees.
+- For "can I afford X": compare X against their balance, what they keep in a
+  typical month, and what is already committed to recurring bills. Give a
+  straight yes / no / yes-but-here-is-the-condition, with the arithmetic
+  behind it.
+- For goals ("save X by Y"): work out the monthly figure required, compare it
+  with what they actually keep, and say whether it is realistic. If it is not,
+  say so and give the number that would be.
+- If the data is too thin to answer honestly, say that plainly and tell them
+  what to record so you can answer next time. Never bluff.
+
+FORMAT
+- Short paragraphs. Markdown bold for key numbers. Bullets only for genuine
+  lists.
+- No headers or tables unless they asked for a report or breakdown.
+- Keep it under roughly 200 words unless they asked for depth.
+- Currency is Nepalese Rupees, written as Rs.
 ''';
   }
 
+  /// Cheap gate before spending a network call on action classification.
+  ///
+  /// Deliberately permissive: a question that slips through only costs one
+  /// classifier call that returns "none", whereas one that is wrongly filtered
+  /// out means the user's "spent 500 on lunch" is never offered for saving.
   static bool _looksLikeRecordMutationRequest(String question) {
     final text = question.toLowerCase().trim();
-    final mutationWords = [
+
+    // Advice and analysis are never record mutations, however many numbers
+    // they contain.
+    const questionCues = [
+      'can i afford',
+      'should i',
+      'how much',
+      'how can',
+      'how do i',
+      'why ',
+      'what if',
+      'where am i',
+      'suggest',
+      'advice',
+      'advise',
+      'plan',
+      'report',
+      'analys',
+      'summary',
+      'breakdown',
+      'compare',
+    ];
+    if (questionCues.any(text.contains)) {
+      return false;
+    }
+
+    const mutationWords = [
       'add',
       'record',
       'log',
-      'save this',
+      'save',
       'create',
       'insert',
       'delete',
@@ -657,100 +757,211 @@ Data usage:
       'change',
       'modify',
       'correct',
+      'move',
+      'mark',
     ];
-    final moneyRecordWords = [
-      'expense',
-      'income',
-      'transaction',
+    if (mutationWords.any(text.contains)) {
+      return true;
+    }
+
+    // A plain statement of fact with an amount — "spent 500 on lunch",
+    // "got 45k salary" — is someone telling their friend what happened, and
+    // almost always wants recording.
+    const statementWords = [
       'spent',
       'spend',
       'paid',
+      'bought',
       'earned',
+      'received',
+      'got',
+      'gave',
+      'sent',
       'salary',
-      'bill',
-      'rent',
-      'emi',
-      'food',
-      'travel',
-      'shopping',
+      'income',
+      'expense',
+      'transaction',
     ];
-
-    final hasMutationWord = mutationWords.any(text.contains);
-    if (!hasMutationWord) {
-      return false;
-    }
-    return moneyRecordWords.any(text.contains) || RegExp(r'\d').hasMatch(text);
+    final hasAmount = RegExp(r'\d').hasMatch(text);
+    return hasAmount && statementWords.any(text.contains);
   }
 
-  static Future<String> _buildPrompt(String question) async {
-    final transactions = await UserDataService.getRecentTransactions(18);
-    transactions.sort((first, second) => second.date.compareTo(first.date));
-
-    final profile = await UserDataService.getProfileOnce();
-
-    final income = transactions.where((transaction) => !transaction.isExpense);
-    final expenses = transactions.where((transaction) => transaction.isExpense);
-    final incomePaisa = income.fold(0, (sum, item) => sum + item.amountPaisa);
-    final expensePaisa = expenses.fold(
-      0,
-      (sum, item) => sum + item.amountPaisa,
-    );
-    final categoryTotals = <String, int>{};
-
-    for (final expense in expenses) {
-      categoryTotals.update(
-        expense.category,
-        (value) => value + expense.amountPaisa,
-        ifAbsent: () => expense.amountPaisa,
-      );
-    }
-
-    final topCategories = categoryTotals.entries.toList()
-      ..sort((first, second) => second.value.compareTo(first.value));
-
-    final recentTransactions = transactions
-        .take(18)
-        .map((transaction) {
-          final type = transaction.isExpense ? 'Expense' : 'Income';
-          final date = transaction.date.toIso8601String().split('T').first;
-          return '- $type: ${transaction.title}, ${transaction.category}, ${MoneyUtils.formatPaisa(transaction.amountPaisa)}, $date';
-        })
-        .join('\n');
-
-    final categories = topCategories
-        .take(8)
-        .map((entry) {
-          return '- ${entry.key}: ${MoneyUtils.formatPaisa(entry.value)}';
-        })
-        .join('\n');
-
-    final profileContext =
-        '''
-User profile:
-- Name: ${profile?.name.trim().isNotEmpty == true ? profile!.name : 'Unknown'}
-- Occupation: ${profile?.occupation.trim().isNotEmpty == true ? profile!.occupation : 'Unknown'}
-- Address: ${profile?.address.trim().isNotEmpty == true ? profile!.address : 'Unknown'}
-''';
-
-    return '''
+  /// Renders the computed figures as a compact brief.
+  ///
+  /// Everything here is already exact, so the model only has to choose what to
+  /// say. The previous version summed a 18-row slice and labelled it "Total
+  /// income recorded", which quietly made every total and every affordability
+  /// verdict wrong for anyone with more history than that.
+  static String _buildPrompt(String question, FinancialInsights insights) {
+    if (!insights.hasData) {
+      return '''
 User message:
 $question
 
-$profileContext
-
-Financial snapshot from SmartExpense:
-- Total income recorded: ${MoneyUtils.formatPaisa(incomePaisa)}
-- Total expenses recorded: ${MoneyUtils.formatPaisa(expensePaisa)}
-- Current recorded balance: ${MoneyUtils.formatPaisa(incomePaisa - expensePaisa)}
-- Transactions available: ${transactions.length}
-
-Top spending categories:
-${categories.isEmpty ? '- No expenses recorded yet' : categories}
-
-Recent transactions:
-${recentTransactions.isEmpty ? '- No transactions recorded yet' : recentTransactions}
-
-Use this app context silently. Do not mention it unless it is relevant to the user's message. Reply directly to the user.
+FINANCIAL BRIEF
+No transactions recorded yet, so there is nothing to analyse. If they ask
+anything about their money, say plainly that you need some entries first and
+suggest they log a few days of spending or their latest income.
 ''';
+    }
+
+    final buffer = StringBuffer()
+      ..writeln('User message:')
+      ..writeln(question)
+      ..writeln()
+      ..writeln('FINANCIAL BRIEF (exact, already computed — never recalculate)')
+      ..writeln('Today: ${_isoDate(insights.generatedAt)}');
+
+    final since = insights.earliestDate;
+    buffer
+      ..writeln(
+        'All time across ${insights.transactionCount} transactions'
+        '${since == null ? '' : ' since ${_isoDate(since)}'}:',
+      )
+      ..writeln('  Income ${_money(insights.totalIncomePaisa)}')
+      ..writeln('  Spent ${_money(insights.totalExpensePaisa)}')
+      ..writeln('  Balance ${_money(insights.balancePaisa)}')
+      ..writeln();
+
+    buffer
+      ..writeln('This month (${_monthName(insights.thisMonth.month)}):')
+      ..writeln(
+        '  Income ${_money(insights.thisMonth.incomePaisa)}, '
+        'spent ${_money(insights.thisMonth.expensePaisa)}, '
+        'difference ${_money(insights.thisMonth.netPaisa)}'
+        '${_ratePart(insights.thisMonth.savingsRate)}',
+      )
+      ..writeln('Last month (${_monthName(insights.lastMonth.month)}):')
+      ..writeln(
+        '  Income ${_money(insights.lastMonth.incomePaisa)}, '
+        'spent ${_money(insights.lastMonth.expensePaisa)}, '
+        'difference ${_money(insights.lastMonth.netPaisa)}'
+        '${_ratePart(insights.lastMonth.savingsRate)}',
+      );
+
+    final spendingChange = insights.spendingChangeRatio;
+    if (spendingChange != null) {
+      final direction = spendingChange >= 0 ? 'up' : 'down';
+      buffer.writeln(
+        '  Spending is $direction '
+        '${(spendingChange.abs() * 100).round()}% vs last month.',
+      );
+    }
+    buffer.writeln();
+
+    buffer.writeln(
+      'Pace: ${_money(insights.dailyBurnPaisa)} per day over the last 30 days.',
+    );
+    final projected = insights.projectedMonthEndExpensePaisa;
+    if (projected != null) {
+      buffer.writeln(
+        '  At this pace this month ends near ${_money(projected)} spent.',
+      );
+    }
+    final runway = insights.runwayDays;
+    if (runway != null) {
+      buffer.writeln(
+        '  Current balance covers about $runway more days at that pace.',
+      );
+    }
+    if (insights.committedMonthlyPaisa > 0) {
+      buffer.writeln(
+        '  Already committed every month to recurring items: '
+        '${_money(insights.committedMonthlyPaisa)}.',
+      );
+    }
+    buffer.writeln();
+
+    if (insights.topCategories.isNotEmpty) {
+      buffer.writeln('Where this month went:');
+      for (final category in insights.topCategories.take(6)) {
+        final change = category.changeRatio;
+        final trend = category.isNew
+            ? ', new this month'
+            : change == null
+            ? ''
+            : ', ${change >= 0 ? 'up' : 'down'} '
+                  '${(change.abs() * 100).round()}% vs last month';
+        buffer.writeln(
+          '  - ${category.label}: ${_money(category.paisa)} '
+          '(${(category.share * 100).round()}% of spending$trend)',
+        );
+      }
+      buffer.writeln();
+    }
+
+    if (insights.biggestExpensesThisMonth.isNotEmpty) {
+      buffer.writeln('Biggest single expenses this month:');
+      for (final expense in insights.biggestExpensesThisMonth) {
+        buffer.writeln(
+          '  - ${expense.title}: ${_money(expense.amountPaisa)} '
+          'on ${_isoDate(expense.date)} (${expense.category})',
+        );
+      }
+      buffer.writeln();
+    }
+
+    if (insights.upcoming.isNotEmpty) {
+      buffer.writeln('Due in the next 14 days:');
+      for (final item in insights.upcoming) {
+        buffer.writeln(
+          '  - ${item.title}: ${_money(item.paisa)} '
+          'on ${_isoDate(item.dueDate)} (${item.source})',
+        );
+      }
+      buffer.writeln();
+    }
+
+    if (insights.concerns.isNotEmpty) {
+      buffer.writeln('CONCERNS (verified, raise the most important one):');
+      for (final concern in insights.concerns) {
+        buffer.writeln('  - $concern');
+      }
+      buffer.writeln();
+    }
+
+    if (insights.wins.isNotEmpty) {
+      buffer.writeln('WINS (credit these specifically):');
+      for (final win in insights.wins) {
+        buffer.writeln('  - $win');
+      }
+      buffer.writeln();
+    }
+
+    buffer.writeln(
+      'Reply to the user directly. Reference the brief only where it '
+      'genuinely helps their question.',
+    );
+
+    return buffer.toString();
+  }
+
+  static String _money(int paisa) => MoneyUtils.formatPaisa(paisa);
+
+  static String _isoDate(DateTime date) {
+    return date.toIso8601String().split('T').first;
+  }
+
+  static String _ratePart(double? rate) {
+    if (rate == null) return '';
+    return ' (${(rate * 100).round()}% of income kept)';
+  }
+
+  static String _monthName(DateTime month) {
+    const names = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${names[month.month - 1]} ${month.year}';
   }
 }

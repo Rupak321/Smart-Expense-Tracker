@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/models/ai_chat_message.dart';
 import '../../../core/models/expense_model.dart';
+import '../../../core/models/financial_insights.dart';
 import '../../../core/models/financial_record_action.dart';
+import '../../../core/parser/transaction_parser_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
-import '../../../core/parser/transaction_parser_service.dart';
 import '../../../services/ai_financial_assistant_service.dart';
+import '../../../services/financial_insights_service.dart';
 import '../../../services/user_data_service.dart';
 import '../../../services/user_settings_service.dart';
 
@@ -30,6 +33,13 @@ class _AiFinancialAssistantScreenState
   var _isSending = false;
   var _isBooting = true;
 
+  /// Cached so the header can show live status and the model always reasons
+  /// about the same figures the user can see.
+  FinancialInsights? _insights;
+
+  /// Kept so a failed turn can be retried without retyping.
+  String? _lastFailedQuestion;
+
   @override
   void initState() {
     super.initState();
@@ -45,20 +55,28 @@ class _AiFinancialAssistantScreenState
 
   Future<void> _startFreshSession() async {
     final session = await AiFinancialAssistantService.createStartupSession();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     setState(() {
       _session = session;
       _messages = session.messages;
       _isBooting = false;
     });
+    _refreshInsights();
+  }
+
+  Future<void> _refreshInsights() async {
+    try {
+      final insights = await FinancialInsightsService.load();
+      if (mounted) {
+        setState(() => _insights = insights);
+      }
+    } catch (_) {
+      // The chat still works without the header summary.
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     if (_isBooting || _session == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -67,10 +85,10 @@ class _AiFinancialAssistantScreenState
       children: [
         _AssistantHeader(
           session: _session!,
+          insights: _insights,
           onHistory: _showChatHistory,
           onNewChat: _newChat,
         ),
-      
         Expanded(
           child: StreamBuilder<AiChatSession?>(
             stream: _session != null
@@ -82,9 +100,7 @@ class _AiFinancialAssistantScreenState
                 if (_session == null ||
                     _session!.messages != sessionData.messages) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) {
-                      return;
-                    }
+                    if (!mounted) return;
                     setState(() {
                       _session = sessionData;
                       _messages = sessionData.messages;
@@ -94,76 +110,44 @@ class _AiFinancialAssistantScreenState
               }
 
               if (_messages.isEmpty) {
-                return _EmptyAssistantState(onPrompt: _sendSuggestion);
+                return _EmptyAssistantState(
+                  insights: _insights,
+                  onPrompt: _sendSuggestion,
+                );
               }
 
               return ListView.builder(
                 controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                padding: const EdgeInsets.fromLTRB(
+                  AppTokens.pageGutter,
+                  AppTokens.gapSm,
+                  AppTokens.pageGutter,
+                  AppTokens.gapMd,
+                ),
                 itemCount: _messages.length + (_isSending ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (index >= _messages.length) {
                     return const _TypingBubble();
                   }
-                  return _ChatBubble(message: _messages[index]);
+                  final message = _messages[index];
+                  final isLast = index == _messages.length - 1;
+                  return _ChatBubble(
+                    message: message,
+                    showRetry:
+                        isLast &&
+                        message.role != 'user' &&
+                        _lastFailedQuestion != null,
+                    onRetry: _retryLast,
+                  );
                 },
               );
             },
           ),
         ),
-        Container(
-          padding: const EdgeInsets.fromLTRB(
-            AppTokens.gapMd,
-            AppTokens.gapSm,
-            AppTokens.gapMd,
-            AppTokens.gapMd,
-          ),
-          decoration: BoxDecoration(
-            color: colorScheme.appCard,
-            border: Border(top: BorderSide(color: colorScheme.appBorder)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    minLines: 1,
-                    maxLines: 4,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
-                    decoration: const InputDecoration(
-                      hintText: 'Ask your finance advisor...',
-                      prefixIcon: Icon(Icons.auto_awesome_rounded),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: FilledButton(
-                    onPressed: _isSending ? null : _sendMessage,
-                    style: FilledButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: _isSending
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        _Composer(
+          controller: _controller,
+          isSending: _isSending,
+          onSend: _sendMessage,
         ),
       ],
     );
@@ -171,6 +155,14 @@ class _AiFinancialAssistantScreenState
 
   Future<void> _sendSuggestion(String question) async {
     _controller.text = question;
+    await _sendMessage();
+  }
+
+  Future<void> _retryLast() async {
+    final question = _lastFailedQuestion;
+    if (question == null || _isSending) return;
+    _controller.text = question;
+    setState(() => _lastFailedQuestion = null);
     await _sendMessage();
   }
 
@@ -187,30 +179,54 @@ class _AiFinancialAssistantScreenState
     setState(() {
       _messages = nextMessages;
       _isSending = true;
+      _lastFailedQuestion = null;
     });
     await AiFinancialAssistantService.saveMessages(session.id, nextMessages);
     _scrollToBottom();
 
     try {
-      final parser = TransactionParserService();
-      final parsed = await parser.parse(text);
-      if (parsed.type != TransactionType.unknown && parsed.confidence >= 0.85) {
-        final newExpense = ExpenseModel(
-          id: Uuid().v4(),
+      // Fast local path: a clear "amount + direction" statement becomes a
+      // proposed record. It still goes through confirmation — this used to
+      // save silently, which meant a misparse wrote a wrong number into the
+      // ledger with nothing to undo it.
+      final parsed = await TransactionParserService().parse(text);
+      if (parsed.type != TransactionType.unknown &&
+          parsed.amount > 0 &&
+          parsed.confidence >= 0.85 &&
+          mounted) {
+        final proposal = ExpenseModel(
+          id: const Uuid().v4(),
           title: parsed.title,
           amount: parsed.amount,
           category: parsed.category,
           date: DateTime.now(),
           isExpense: parsed.type == TransactionType.expense,
         );
-        await UserDataService.addTransaction(newExpense);
-        final assistantMessage = AiFinancialAssistantService.assistantMessage(
-          'Saved ${parsed.type == TransactionType.expense ? 'expense' : 'income'}: ${parsed.title} for ${MoneyUtils.formatAmount(parsed.amount)}.',
+        final confirmed = await _confirmFinancialAction(
+          FinancialRecordAction(
+            type: FinancialActionType.add,
+            newRecord: proposal,
+          ),
         );
-        final updatedMessages = [...nextMessages, assistantMessage];
-        await AiFinancialAssistantService.saveMessages(session.id, updatedMessages);
-        if (mounted) {
-          setState(() => _messages = updatedMessages);
+
+        if (confirmed) {
+          await UserDataService.addTransaction(proposal);
+          await _reply(
+            session.id,
+            nextMessages,
+            'Saved — ${proposal.isExpense ? 'expense' : 'income'} '
+            '**${proposal.title}** for '
+            '**${MoneyUtils.formatAmount(proposal.amount)}** '
+            'under ${proposal.category}.',
+          );
+          _refreshInsights();
+        } else {
+          await _reply(
+            session.id,
+            nextMessages,
+            'No problem, I did not save it. Tell me the right details and '
+            'I will log it properly.',
+          );
         }
         return;
       }
@@ -220,40 +236,22 @@ class _AiFinancialAssistantScreenState
             question: text,
             history: nextMessages,
           );
+
       if (actionResult.clarification != null) {
-        final assistantMessage = AiFinancialAssistantService.assistantMessage(
-          actionResult.clarification!,
-        );
-        final updatedMessages = [...nextMessages, assistantMessage];
-        await AiFinancialAssistantService.saveMessages(
-          session.id,
-          updatedMessages,
-        );
-        if (mounted) {
-          setState(() => _messages = updatedMessages);
-        }
+        await _reply(session.id, nextMessages, actionResult.clarification!);
         return;
       }
 
       final action = actionResult.action;
       if (action != null) {
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
         final confirmed = await _confirmFinancialAction(action);
         final response = confirmed
             ? await AiFinancialAssistantService.executeFinancialAction(action)
-            : 'Cancelled bro. I did not change any records.';
-        final assistantMessage = AiFinancialAssistantService.assistantMessage(
-          response,
-        );
-        final updatedMessages = [...nextMessages, assistantMessage];
-        await AiFinancialAssistantService.saveMessages(
-          session.id,
-          updatedMessages,
-        );
-        if (mounted) {
-          setState(() => _messages = updatedMessages);
+            : 'Cancelled — nothing in your records changed.';
+        await _reply(session.id, nextMessages, response);
+        if (confirmed) {
+          _refreshInsights();
         }
         return;
       }
@@ -261,30 +259,17 @@ class _AiFinancialAssistantScreenState
       final answer = await AiFinancialAssistantService.ask(
         question: text,
         history: nextMessages,
+        insights: _insights,
       );
-      final assistantMessage = AiFinancialAssistantService.assistantMessage(
-        answer,
-      );
-      final updatedMessages = [...nextMessages, assistantMessage];
-      await AiFinancialAssistantService.saveMessages(
-        session.id,
-        updatedMessages,
-      );
-      if (mounted) {
-        setState(() => _messages = updatedMessages);
-      }
+      await _reply(session.id, nextMessages, answer);
     } catch (error) {
-      final assistantMessage = AiFinancialAssistantService.assistantMessage(
-        'I could not reach the AI service right now.\n\n${error.toString().replaceFirst('Exception: ', '')}',
-      );
-      final updatedMessages = [...nextMessages, assistantMessage];
-      await AiFinancialAssistantService.saveMessages(
+      _lastFailedQuestion = text;
+      await _reply(
         session.id,
-        updatedMessages,
+        nextMessages,
+        'I could not reach the AI service just now.\n\n'
+        '${error.toString().replaceFirst('Exception: ', '')}',
       );
-      if (mounted) {
-        setState(() => _messages = updatedMessages);
-      }
     } finally {
       if (mounted) {
         final freshSession =
@@ -299,13 +284,26 @@ class _AiFinancialAssistantScreenState
     }
   }
 
+  Future<void> _reply(
+    String sessionId,
+    List<AiChatMessage> baseMessages,
+    String content,
+  ) async {
+    final assistantMessage = AiFinancialAssistantService.assistantMessage(
+      content,
+    );
+    final updated = [...baseMessages, assistantMessage];
+    await AiFinancialAssistantService.saveMessages(sessionId, updated);
+    if (mounted) {
+      setState(() => _messages = updated);
+    }
+  }
+
   Future<bool> _confirmFinancialAction(FinancialRecordAction action) async {
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return _FinancialActionDialog(action: action);
-      },
+      builder: (dialogContext) => _FinancialActionDialog(action: action),
     );
     return confirmed == true;
   }
@@ -318,6 +316,7 @@ class _AiFinancialAssistantScreenState
         _messages = session.messages;
       });
     }
+    _refreshInsights();
   }
 
   Future<void> _switchSession(AiChatSession session) async {
@@ -325,9 +324,7 @@ class _AiFinancialAssistantScreenState
     final freshSession = await AiFinancialAssistantService.getSession(
       session.id,
     );
-    if (!mounted || freshSession == null) {
-      return;
-    }
+    if (!mounted || freshSession == null) return;
     setState(() {
       _session = freshSession;
       _messages = freshSession.messages;
@@ -341,9 +338,7 @@ class _AiFinancialAssistantScreenState
     final activeSession = activeId == null
         ? null
         : await AiFinancialAssistantService.getSession(activeId);
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     if (activeSession != null) {
       setState(() {
         _session = activeSession;
@@ -351,9 +346,7 @@ class _AiFinancialAssistantScreenState
       });
     } else {
       final newSession = await AiFinancialAssistantService.createSession();
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() {
         _session = newSession;
         _messages = newSession.messages;
@@ -365,10 +358,7 @@ class _AiFinancialAssistantScreenState
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      useSafeArea: true,
       builder: (context) {
         return _ChatHistorySheet(
           activeSessionId: _session?.id,
@@ -388,9 +378,7 @@ class _AiFinancialAssistantScreenState
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) {
-        return;
-      }
+      if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 240),
@@ -402,11 +390,13 @@ class _AiFinancialAssistantScreenState
 
 class _AssistantHeader extends StatelessWidget {
   final AiChatSession session;
+  final FinancialInsights? insights;
   final VoidCallback onHistory;
   final VoidCallback onNewChat;
 
   const _AssistantHeader({
     required this.session,
+    required this.insights,
     required this.onHistory,
     required this.onNewChat,
   });
@@ -414,63 +404,220 @@ class _AssistantHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppTokens.pageGutter,
+            AppTokens.gapLg,
+            AppTokens.gapSm,
+            AppTokens.gapSm,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+                ),
+                child: Icon(
+                  Icons.smart_toy_rounded,
+                  color: colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: AppTokens.gapMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'AI Assistant',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurface,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      session.title == 'New chat'
+                          ? 'New conversation'
+                          : session.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Chat history',
+                onPressed: onHistory,
+                icon: const Icon(Icons.history_rounded),
+              ),
+              IconButton(
+                tooltip: 'New chat',
+                onPressed: onNewChat,
+                icon: const Icon(Icons.add_comment_rounded),
+              ),
+            ],
+          ),
+        ),
+        if (insights != null && insights!.hasData)
+          _InsightStrip(insights: insights!),
+      ],
+    );
+  }
+}
+
+/// Live status line so the user can see the same figures the assistant is
+/// reasoning about, rather than having to take its word for them.
+class _InsightStrip extends StatelessWidget {
+  final FinancialInsights insights;
+
+  const _InsightStrip({required this.insights});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final stance = insights.stance;
+    final accent = switch (stance) {
+      CoachStance.strict => colorScheme.appExpense,
+      CoachStance.watchful => colorScheme.appWarning,
+      CoachStance.encouraging => colorScheme.appIncome,
+      CoachStance.calm => colorScheme.primary,
+    };
+    final icon = switch (stance) {
+      CoachStance.strict => Icons.error_outline_rounded,
+      CoachStance.watchful => Icons.warning_amber_rounded,
+      CoachStance.encouraging => Icons.trending_up_rounded,
+      CoachStance.calm => Icons.check_circle_outline_rounded,
+    };
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        AppTokens.pageGutter,
+        0,
+        AppTokens.pageGutter,
+        AppTokens.gapSm,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.gapMd,
+        vertical: AppTokens.gapSm,
+      ),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
+      ),
       child: Row(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(Icons.smart_toy_rounded, color: colorScheme.primary),
-          ),
-          const SizedBox(width: 12),
+          Icon(icon, size: 16, color: accent),
+          const SizedBox(width: AppTokens.gapSm),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  // Shortened from "AI Financial Assistant", which ellipsised
-                  // on a normal phone once the history and new-chat buttons
-                  // took their share of the row.
-                  'AI Assistant',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  session.title == 'New chat'
-                      ? 'New conversation'
-                      : session.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colorScheme.onSurfaceVariant,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
+            child: Text(
+              insights.headline,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
-          IconButton(
-            tooltip: 'Chat history',
-            onPressed: onHistory,
-            icon: const Icon(Icons.history_rounded),
-          ),
-          IconButton(
-            tooltip: 'New chat',
-            onPressed: onNewChat,
-            icon: const Icon(Icons.add_comment_rounded),
+          const SizedBox(width: AppTokens.gapSm),
+          Text(
+            'Balance ${MoneyUtils.formatCompactPaisa(insights.balancePaisa)}',
+            maxLines: 1,
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _Composer extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isSending;
+  final VoidCallback onSend;
+
+  const _Composer({
+    required this.controller,
+    required this.isSending,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppTokens.gapMd,
+        AppTokens.gapSm,
+        AppTokens.gapMd,
+        AppTokens.gapMd,
+      ),
+      decoration: BoxDecoration(
+        color: colorScheme.appCard,
+        border: Border(top: BorderSide(color: colorScheme.appBorder)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => onSend(),
+                decoration: const InputDecoration(
+                  hintText: 'Ask, or just say what you spent...',
+                  prefixIcon: Icon(Icons.auto_awesome_rounded),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppTokens.gapSm),
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: FilledButton(
+                onPressed: isSending ? null : onSend,
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                  ),
+                ),
+                child: isSending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -495,7 +642,12 @@ class _ChatHistorySheet extends StatelessWidget {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.gapLg,
+          0,
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+        ),
         child: FutureBuilder<List<AiChatSession>>(
           future: AiFinancialAssistantService.getSessions(),
           builder: (context, snapshot) {
@@ -523,61 +675,77 @@ class _ChatHistorySheet extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 420),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: sessions.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final session = sessions[index];
-                      final isActive = session.id == activeSessionId;
-                      return Material(
-                        color: isActive
-                            ? colorScheme.primary.withValues(alpha: 0.10)
-                            : colorScheme.appCard,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            AppTokens.radiusMd,
+                const SizedBox(height: AppTokens.gapMd),
+                if (sessions.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppTokens.gapXl,
+                    ),
+                    child: Text(
+                      'No saved chats yet.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 420),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: sessions.length,
+                      separatorBuilder: (context, index) =>
+                          const SizedBox(height: AppTokens.gapSm),
+                      itemBuilder: (context, index) {
+                        final session = sessions[index];
+                        final isActive = session.id == activeSessionId;
+                        return Material(
+                          color: isActive
+                              ? colorScheme.primary.withValues(alpha: 0.10)
+                              : colorScheme.appCard,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppTokens.radiusMd,
+                            ),
+                            side: BorderSide(
+                              color: isActive
+                                  ? colorScheme.primary
+                                  : colorScheme.appBorder,
+                            ),
                           ),
-                          side: BorderSide(
-                            color: isActive
-                                ? colorScheme.primary
-                                : colorScheme.appBorder,
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            onTap: () => onSelect(session),
+                            leading: Icon(
+                              isActive
+                                  ? Icons.chat_bubble_rounded
+                                  : Icons.chat_bubble_outline_rounded,
+                              color: colorScheme.primary,
+                            ),
+                            title: Text(
+                              session.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${session.messages.length} message'
+                              '${session.messages.length == 1 ? '' : 's'} • '
+                              '${_dateLabel(session.updatedAt)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: IconButton(
+                              tooltip: 'Delete chat',
+                              onPressed: () => onDelete(session),
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            ),
                           ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: ListTile(
-                          onTap: () => onSelect(session),
-                          leading: Icon(
-                            isActive
-                                ? Icons.chat_bubble_rounded
-                                : Icons.chat_bubble_outline_rounded,
-                            color: colorScheme.primary,
-                          ),
-                          title: Text(
-                            session.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          subtitle: Text(
-                            '${session.messages.length} message${session.messages.length == 1 ? '' : 's'} • ${_dateLabel(session.updatedAt)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: IconButton(
-                            tooltip: 'Delete chat',
-                            onPressed: () => onDelete(session),
-                            icon: const Icon(Icons.delete_outline_rounded),
-                          ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
-                ),
               ],
             );
           },
@@ -601,12 +769,17 @@ class _FinancialActionDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isDelete = action.type == FinancialActionType.delete;
+
     return AlertDialog(
       title: Row(
         children: [
-          Icon(_iconForAction(), color: colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(child: Text('${_actionLabel()} transaction?')),
+          Icon(
+            _iconForAction(),
+            color: isDelete ? colorScheme.error : colorScheme.primary,
+          ),
+          const SizedBox(width: AppTokens.gapSm),
+          Expanded(child: Text('${_actionLabel()} this?')),
         ],
       ),
       content: SingleChildScrollView(
@@ -614,8 +787,6 @@ class _FinancialActionDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _DetailRow(label: 'Action', value: _actionLabel()),
-            const SizedBox(height: 10),
             if (action.type == FinancialActionType.add &&
                 action.newRecord != null)
               _RecordDetails(record: action.newRecord!),
@@ -639,7 +810,13 @@ class _FinancialActionDialog extends StatelessWidget {
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Confirm'),
+          style: isDelete
+              ? FilledButton.styleFrom(
+                  backgroundColor: colorScheme.error,
+                  foregroundColor: colorScheme.onError,
+                )
+              : null,
+          child: Text(_actionLabel()),
         ),
       ],
     );
@@ -647,7 +824,7 @@ class _FinancialActionDialog extends StatelessWidget {
 
   String _actionLabel() {
     return switch (action.type) {
-      FinancialActionType.add => 'Add',
+      FinancialActionType.add => 'Save',
       FinancialActionType.update => 'Update',
       FinancialActionType.delete => 'Delete',
     };
@@ -669,18 +846,52 @@ class _RecordDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final accent = record.isExpense
+        ? colorScheme.appExpense
+        : colorScheme.appIncome;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _DetailRow(
-          label: 'Type',
-          value: record.isExpense ? 'Expense' : 'Income',
+        Container(
+          padding: const EdgeInsets.all(AppTokens.gapMd),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                record.isExpense ? 'Expense' : 'Income',
+                style: TextStyle(
+                  color: accent,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapXs),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  MoneyUtils.formatAmount(record.amount),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        _DetailRow(label: 'Title / Note', value: record.title),
-        _DetailRow(
-          label: 'Amount',
-          value: MoneyUtils.formatAmount(record.amount),
-        ),
+        const SizedBox(height: AppTokens.gapMd),
+        _DetailRow(label: 'Title', value: record.title),
         _DetailRow(label: 'Category', value: record.category),
         _DetailRow(label: 'Date', value: _dateLabel(record.date)),
       ],
@@ -696,14 +907,14 @@ class _ChangeDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final changes = <Widget>[
+    final changes = <_ChangeRow>[
       _ChangeRow(
         label: 'Type',
         oldValue: oldRecord.isExpense ? 'Expense' : 'Income',
         newValue: newRecord.isExpense ? 'Expense' : 'Income',
       ),
       _ChangeRow(
-        label: 'Title / Note',
+        label: 'Title',
         oldValue: oldRecord.title,
         newValue: newRecord.title,
       ),
@@ -722,7 +933,7 @@ class _ChangeDetails extends StatelessWidget {
         oldValue: _dateLabel(oldRecord.date),
         newValue: _dateLabel(newRecord.date),
       ),
-    ].whereType<_ChangeRow>().where((row) => row.hasChanged).toList();
+    ].where((row) => row.hasChanged).toList();
 
     if (changes.isEmpty) {
       return const Text('No visible changes detected.');
@@ -744,12 +955,12 @@ class _DetailRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: AppTokens.gapSm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 92,
+            width: 84,
             child: Text(
               label,
               style: TextStyle(
@@ -789,12 +1000,13 @@ class _ChangeRow extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.only(bottom: AppTokens.gapSm),
+      padding: const EdgeInsets.all(AppTokens.gapMd),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(10),
+        color: colorScheme.appCardMuted,
+        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -803,24 +1015,37 @@ class _ChangeRow extends StatelessWidget {
             label,
             style: TextStyle(
               color: colorScheme.onSurfaceVariant,
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
             ),
           ),
-          const SizedBox(height: 5),
-          Text(oldValue, style: TextStyle(color: colorScheme.error)),
-          const SizedBox(height: 3),
+          const SizedBox(height: AppTokens.gapXs),
           Row(
             children: [
-              Icon(
-                Icons.arrow_downward_rounded,
-                size: 14,
-                color: colorScheme.primary,
+              Flexible(
+                child: Text(
+                  oldValue,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
               ),
-              const SizedBox(width: 4),
-              Expanded(
+              const SizedBox(width: AppTokens.gapSm),
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 14,
+                color: colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: AppTokens.gapSm),
+              Flexible(
                 child: Text(
                   newValue,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w900,
@@ -842,19 +1067,45 @@ String _dateLabel(DateTime date) {
 }
 
 class _EmptyAssistantState extends StatelessWidget {
+  final FinancialInsights? insights;
   final ValueChanged<String> onPrompt;
 
-  const _EmptyAssistantState({required this.onPrompt});
+  const _EmptyAssistantState({required this.insights, required this.onPrompt});
+
+  /// Suggestions follow the user's actual situation instead of being a fixed
+  /// list, so the first tap already asks something worth answering.
+  List<String> _prompts() {
+    final data = insights;
+    if (data == null || !data.hasData) {
+      return const [
+        'How should I start tracking my money?',
+        'What should I record first?',
+        'Explain how to budget on a small income',
+      ];
+    }
+
+    final prompts = <String>[];
+    if (data.stance == CoachStance.strict) {
+      prompts.add('Why am I overspending, and what do I cut first?');
+    }
+    final top = data.topCategories.isNotEmpty
+        ? data.topCategories.first.label
+        : null;
+    if (top != null) {
+      prompts.add('How do I cut my $top spending?');
+    }
+    prompts.addAll([
+      'Give me a straight review of this month',
+      'How much can I safely save each month?',
+      'Can I afford a Rs. 60,000 laptop?',
+    ]);
+    return prompts.take(4).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final prompts = [
-      'Where am I spending most?',
-      'How can I save money this month?',
-      'Can I afford a bike in 6 months?',
-      'Create a weekly spending report.',
-    ];
     final colorScheme = Theme.of(context).colorScheme;
+    final data = insights;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -878,7 +1129,7 @@ class _EmptyAssistantState extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.auto_awesome_rounded, color: colorScheme.appOnHero),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppTokens.gapMd),
               Text(
                 'Ask anything about your money.',
                 style: TextStyle(
@@ -887,22 +1138,28 @@ class _EmptyAssistantState extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: AppTokens.gapXs + 2),
               Text(
-                'Each chat keeps its own memory, so follow-up questions make sense.',
+                data != null && data.hasData
+                    ? 'I can see all ${data.transactionCount} of your '
+                          'transactions. I will be straight with you about '
+                          'what they say.'
+                    : 'Tell me what you spent and I will log it. Ask me '
+                          'anything and I will be straight with you.',
                 style: TextStyle(
                   color: colorScheme.appOnHero.withValues(alpha: 0.85),
                   fontSize: 13,
+                  height: 1.4,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        for (final prompt in prompts) ...[
+        const SizedBox(height: AppTokens.gapLg),
+        for (final prompt in _prompts()) ...[
           _PromptTile(prompt: prompt, onTap: () => onPrompt(prompt)),
-          const SizedBox(height: 10),
+          const SizedBox(height: AppTokens.gapSm),
         ],
       ],
     );
@@ -938,8 +1195,14 @@ class _PromptTile extends StatelessWidget {
 
 class _ChatBubble extends StatelessWidget {
   final AiChatMessage message;
+  final bool showRetry;
+  final VoidCallback onRetry;
 
-  const _ChatBubble({required this.message});
+  const _ChatBubble({
+    required this.message,
+    this.showRetry = false,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -948,48 +1211,149 @@ class _ChatBubble extends StatelessWidget {
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.82,
+          maxWidth: MediaQuery.sizeOf(context).width * 0.84,
         ),
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isUser ? colorScheme.primary : colorScheme.appCardMuted,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(AppTokens.radiusMd),
-            topRight: const Radius.circular(AppTokens.radiusMd),
-            bottomLeft: Radius.circular(isUser ? AppTokens.radiusMd : 4),
-            bottomRight: Radius.circular(isUser ? 4 : AppTokens.radiusMd),
-          ),
-        ),
-        child: isUser
-            ? Text(
-                message.content,
-                style: TextStyle(
-                  color: colorScheme.onPrimary,
-                  fontSize: 14,
-                  height: 1.35,
-                  fontWeight: FontWeight.w600,
+        child: Column(
+          crossAxisAlignment: isUser
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              onLongPress: () {
+                Clipboard.setData(ClipboardData(text: message.content));
+                HapticFeedback.mediumImpact();
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    const SnackBar(content: Text('Copied to clipboard')),
+                  );
+              },
+              child: Container(
+                margin: const EdgeInsets.only(bottom: AppTokens.gapXs),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.gapMd,
+                  vertical: AppTokens.gapMd,
                 ),
-              )
-            : MarkdownBody(
-                data: message.content,
-                styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontSize: 14,
-                    height: 1.45,
+                decoration: BoxDecoration(
+                  color: isUser
+                      ? colorScheme.primary
+                      : colorScheme.appCardMuted,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(AppTokens.radiusMd),
+                    topRight: const Radius.circular(AppTokens.radiusMd),
+                    bottomLeft: Radius.circular(isUser ? AppTokens.radiusMd : 4),
+                    bottomRight: Radius.circular(
+                      isUser ? 4 : AppTokens.radiusMd,
+                    ),
                   ),
-                  strong: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontWeight: FontWeight.w900,
-                  ),
-                  listBullet: TextStyle(color: colorScheme.onSurface),
                 ),
+                child: isUser
+                    ? Text(
+                        message.content,
+                        style: TextStyle(
+                          color: colorScheme.onPrimary,
+                          fontSize: 14,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    : MarkdownBody(
+                        data: message.content,
+                        selectable: true,
+                        styleSheet: MarkdownStyleSheet(
+                          p: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 14,
+                            height: 1.45,
+                          ),
+                          strong: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontWeight: FontWeight.w900,
+                          ),
+                          listBullet: TextStyle(color: colorScheme.onSurface),
+                          h1: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          h2: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          h3: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(
+                left: 4,
+                right: 4,
+                bottom: AppTokens.gapMd,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _timeLabel(message.createdAt),
+                    style: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (showRetry) ...[
+                    const SizedBox(width: AppTokens.gapSm),
+                    InkWell(
+                      onTap: onRetry,
+                      borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.refresh_rounded,
+                              size: 12,
+                              color: colorScheme.primary,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Retry',
+                              style: TextStyle(
+                                color: colorScheme.primary,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  static String _timeLabel(DateTime time) {
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute ${time.hour < 12 ? 'am' : 'pm'}';
   }
 }
 
@@ -998,14 +1362,24 @@ class _TypingBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        margin: const EdgeInsets.only(bottom: AppTokens.gapMd),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppTokens.gapLg,
+          vertical: AppTokens.gapMd,
+        ),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.appCardMuted,
-          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          color: colorScheme.appCardMuted,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(AppTokens.radiusMd),
+            topRight: Radius.circular(AppTokens.radiusMd),
+            bottomLeft: Radius.circular(4),
+            bottomRight: Radius.circular(AppTokens.radiusMd),
+          ),
         ),
         child: const SizedBox(
           width: 46,

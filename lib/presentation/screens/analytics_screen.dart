@@ -512,11 +512,19 @@ class AnalyticsScreen extends StatelessWidget {
       return null;
     }
 
-    Color colorFor(String category) {
-      final preferred = preferredColor(category);
+    // Two passes so a category with a natural colour always gets it. A single
+    // pass let an unmatched category ahead of it in the list take that colour
+    // first — "Other" ended up wearing the food orange while "Food -
+    // Restaurant" was pushed onto blue.
+    final assigned = <String, Color>{};
+    for (final entry in entries) {
+      final preferred = preferredColor(entry.key);
       if (preferred != null && claimed.add(preferred)) {
-        return preferred;
+        assigned[entry.key] = preferred;
       }
+    }
+
+    Color fallbackFor(String category) {
       for (final candidate in AppColorRoles.chartPalette) {
         if (claimed.add(candidate)) {
           return candidate;
@@ -532,7 +540,7 @@ class AnalyticsScreen extends StatelessWidget {
         _CategorySlice(
           label: entry.key,
           paisa: entry.value,
-          color: colorFor(entry.key),
+          color: assigned[entry.key] ?? fallbackFor(entry.key),
           icon: _iconForCategory(entry.key),
         ),
     ];

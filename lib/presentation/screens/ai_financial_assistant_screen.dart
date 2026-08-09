@@ -433,12 +433,15 @@ class _AssistantHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'AI Financial Assistant',
+                  // Shortened from "AI Financial Assistant", which ellipsised
+                  // on a normal phone once the history and new-chat buttons
+                  // took their share of the row.
+                  'AI Assistant',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: colorScheme.onSurface,
-                    fontSize: 21,
+                    fontSize: 20,
                     fontWeight: FontWeight.w800,
                   ),
                 ),

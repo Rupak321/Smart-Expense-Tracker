@@ -120,7 +120,7 @@ class RecurringExpenseModel {
     String id,
     Map<String, dynamic> json,
   ) {
-    DateTime _readDate(dynamic value) {
+    DateTime readDate(dynamic value) {
       if (value == null) {
         return DateTime.now();
       }
@@ -148,12 +148,12 @@ class RecurringExpenseModel {
         orElse: () => RecurringFrequency.monthly,
       ),
       interval: (json['interval'] as num?)?.toInt() ?? 1,
-      startDate: _readDate(json['startDate']),
-      endDate: json['endDate'] == null ? null : _readDate(json['endDate']),
-      nextDueDate: _readDate(json['nextDueDate']),
+      startDate: readDate(json['startDate']),
+      endDate: json['endDate'] == null ? null : readDate(json['endDate']),
+      nextDueDate: readDate(json['nextDueDate']),
       lastGeneratedDate: json['lastGeneratedDate'] == null
           ? null
-          : _readDate(json['lastGeneratedDate']),
+          : readDate(json['lastGeneratedDate']),
       status: RecurringStatus.values.firstWhere(
         (value) => value.name == (json['status']?.toString() ?? 'active'),
         orElse: () => RecurringStatus.active,
@@ -163,8 +163,8 @@ class RecurringExpenseModel {
       notes: json['notes']?.toString() ?? '',
       iconKey: json['iconKey']?.toString() ?? '',
       colorHex: json['colorHex']?.toString() ?? '#4DB6AC',
-      createdAt: _readDate(json['createdAt']),
-      updatedAt: _readDate(json['updatedAt']),
+      createdAt: readDate(json['createdAt']),
+      updatedAt: readDate(json['updatedAt']),
     );
   }
 }

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../core/theme/app_theme.dart';
 import '../../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -92,8 +94,8 @@ class _LoginScreenState extends State<LoginScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              colorScheme.primary.withValues(alpha: 0.10),
-              colorScheme.surface,
+              colorScheme.primary.withValues(alpha: 0.12),
+              colorScheme.appBackground,
             ],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -132,14 +134,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 28),
                     DecoratedBox(
                       decoration: BoxDecoration(
-                        color: colorScheme.surface.withValues(alpha: 0.96),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: colorScheme.outline.withValues(alpha: 0.22),
-                        ),
+                        color: colorScheme.appCard,
+                        borderRadius: BorderRadius.circular(AppTokens.radiusXl),
+                        border: Border.all(color: colorScheme.appBorder),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.06),
+                            color: colorScheme.shadowAt(0.06),
                             blurRadius: 24,
                             offset: const Offset(0, 12),
                           ),
@@ -155,9 +155,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               Container(
                                 padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerHighest
-                                      .withValues(alpha: 0.65),
-                                  borderRadius: BorderRadius.circular(14),
+                                  color: colorScheme.appCardMuted,
+                                  borderRadius: BorderRadius.circular(
+                                    AppTokens.radiusMd,
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
@@ -386,9 +387,7 @@ class _ModeButton extends StatelessWidget {
     return FilledButton.tonal(
       onPressed: onPressed,
       style: FilledButton.styleFrom(
-        backgroundColor: active
-            ? colorScheme.primary
-            : colorScheme.surfaceContainerHighest,
+        backgroundColor: active ? colorScheme.primary : Colors.transparent,
         foregroundColor: active
             ? colorScheme.onPrimary
             : colorScheme.onSurfaceVariant,

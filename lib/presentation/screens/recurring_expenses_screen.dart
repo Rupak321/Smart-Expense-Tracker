@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../core/components/app_widgets.dart';
 import '../../core/models/recurring_expense_model.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/money_utils.dart';
 import '../../services/user_data_service.dart';
-import '../../services/recurring_expense_service.dart';
 
 class RecurringExpensesScreen extends StatelessWidget {
   const RecurringExpensesScreen({super.key});
@@ -16,22 +17,39 @@ class RecurringExpensesScreen extends StatelessWidget {
         stream: UserDataService.recurringExpensesStream(),
         builder: (context, snapshot) {
           final items = snapshot.data ?? const <RecurringExpenseModel>[];
+          final bottomInset =
+              96 + MediaQuery.paddingOf(context).bottom;
+
           if (items.isEmpty) {
-            return Center(
-              child: Text(
-                'Add rent, subscriptions, bills, or other repeating expenses.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+            return SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                AppTokens.pageGutter,
+                AppTokens.gapXl,
+                AppTokens.pageGutter,
+                bottomInset,
+              ),
+              child: EmptyStateCard(
+                icon: Icons.repeat_rounded,
+                title: 'No recurring expenses',
+                message:
+                    'Add rent, subscriptions, bills, or other repeating '
+                    'expenses and they will be recorded automatically.',
+                actionLabel: 'Add first one',
+                onAction: () => _showAddEditRecurringExpense(context),
+                margin: EdgeInsets.zero,
               ),
             );
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+            padding: EdgeInsets.fromLTRB(
+              AppTokens.pageGutter,
+              AppTokens.gapMd,
+              AppTokens.pageGutter,
+              bottomInset,
+            ),
             itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            separatorBuilder: (_, _) => const SizedBox(height: AppTokens.gapSm),
             itemBuilder: (context, index) {
               final item = items[index];
               return _RecurringExpenseTile(expense: item);
@@ -39,9 +57,10 @@ class RecurringExpensesScreen extends StatelessWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddEditRecurringExpense(context),
-        child: const Icon(Icons.add_rounded),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Add'),
       ),
     );
   }
@@ -64,50 +83,39 @@ class UpcomingRecurringSection extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 0, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Upcoming Recurring',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const RecurringExpensesScreen(),
-                        ),
-                      ),
-                      child: const Text('View all'),
-                    ),
-                  ],
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SectionHeader(
+              title: 'Upcoming Recurring',
+              trailing: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const RecurringExpensesScreen(),
+                  ),
                 ),
+                child: const Text('View all'),
               ),
-              SizedBox(
-                height: 118,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: upcoming.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
-                  itemBuilder: (context, index) {
-                    final item = upcoming[index];
-                    return SizedBox(
-                      width: 190,
-                      child: _UpcomingRecurringCard(expense: item),
-                    );
-                  },
+            ),
+            SizedBox(
+              height: 124,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.pageGutter,
                 ),
+                itemCount: upcoming.length,
+                separatorBuilder: (_, _) => const SizedBox(width: AppTokens.gapSm),
+                itemBuilder: (context, index) {
+                  final item = upcoming[index];
+                  return SizedBox(
+                    width: 190,
+                    child: _UpcomingRecurringCard(expense: item),
+                  );
+                },
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -124,19 +132,56 @@ class _RecurringExpenseTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final paused = expense.status == RecurringStatus.paused;
     return Material(
-      color: colorScheme.surface,
+      color: colorScheme.appCard,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
-          child: Icon(_iconForCategory(expense.category), color: colorScheme.primary),
+          child: Icon(
+            _iconForCategory(expense.category),
+            color: colorScheme.primary,
+          ),
         ),
-        title: Text(expense.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text('${_frequencyLabel(expense)} • ${_dueLabel(expense.nextDueDate)}'),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                expense.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            if (paused) ...[
+              const SizedBox(width: AppTokens.gapSm),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colorScheme.appCardMuted,
+                  borderRadius: BorderRadius.circular(AppTokens.radiusPill),
+                ),
+                child: Text(
+                  'Paused',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          '${_frequencyLabel(expense)} • ${_dueLabel(expense.nextDueDate)} • '
+          '${MoneyUtils.formatAmount(expense.amount)}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
         trailing: PopupMenuButton<String>(
           onSelected: (value) async {
             if (value == 'edit') {
@@ -176,32 +221,54 @@ class _UpcomingRecurringCard extends StatelessWidget {
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const RecurringExpensesScreen()),
       ),
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppTokens.gapMd),
         decoration: BoxDecoration(
-          color: colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: colorScheme.outlineVariant),
+          color: colorScheme.appCard,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          border: Border.all(color: colorScheme.appBorder),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(_iconForCategory(expense.category), size: 20, color: colorScheme.primary),
-                const SizedBox(width: 8),
+                Icon(
+                  _iconForCategory(expense.category),
+                  size: 18,
+                  color: colorScheme.primary,
+                ),
+                const SizedBox(width: AppTokens.gapSm),
                 Expanded(
-                  child: Text(expense.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    expense.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
             const Spacer(),
-            Text(
-              MoneyUtils.formatAmount(expense.amount),
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            SizedBox(
+              width: double.infinity,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  MoneyUtils.formatAmount(expense.amount),
+                  maxLines: 1,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: AppTokens.gapXs + 2),
             _DueBadge(date: expense.nextDueDate),
           ],
         ),
@@ -222,10 +289,10 @@ class _DueBadge extends StatelessWidget {
         .inDays;
     final colorScheme = Theme.of(context).colorScheme;
     final color = days <= 0
-        ? colorScheme.error
+        ? colorScheme.appExpense
         : days <= 2
-            ? Colors.orange
-            : colorScheme.onSurfaceVariant;
+        ? colorScheme.appWarning
+        : colorScheme.onSurfaceVariant;
     return Text(
       _dueLabel(date),
       maxLines: 1,
@@ -349,36 +416,83 @@ class _RecurringExpenseFormState extends State<_RecurringExpenseForm> {
                   return parsed == null || parsed <= 0 ? 'Enter a valid amount' : null;
                 },
               ),
-              const SizedBox(height: 12),
-              SegmentedButton<RecurringFrequency>(
-                segments: const [
-                  ButtonSegment(value: RecurringFrequency.daily, label: Text('Daily')),
-                  ButtonSegment(value: RecurringFrequency.weekly, label: Text('Weekly')),
-                  ButtonSegment(value: RecurringFrequency.monthly, label: Text('Monthly')),
-                  ButtonSegment(value: RecurringFrequency.yearly, label: Text('Yearly')),
-                ],
-                selected: {_frequency},
-                onSelectionChanged: (value) => setState(() => _frequency = value.first),
+              const SizedBox(height: AppTokens.gapLg),
+              // Four segments do not fit a narrow phone at larger text scales,
+              // so the control scrolls horizontally instead of overflowing.
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SegmentedButton<RecurringFrequency>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                      value: RecurringFrequency.daily,
+                      label: Text('Daily'),
+                    ),
+                    ButtonSegment(
+                      value: RecurringFrequency.weekly,
+                      label: Text('Weekly'),
+                    ),
+                    ButtonSegment(
+                      value: RecurringFrequency.monthly,
+                      label: Text('Monthly'),
+                    ),
+                    ButtonSegment(
+                      value: RecurringFrequency.yearly,
+                      label: Text('Yearly'),
+                    ),
+                  ],
+                  selected: {_frequency},
+                  onSelectionChanged: (value) =>
+                      setState(() => _frequency = value.first),
+                ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: AppTokens.gapMd),
               Row(
                 children: [
-                  const Text('Every'),
+                  const Text('Repeat every'),
+                  const Spacer(),
                   IconButton(
-                    onPressed: _interval > 1 ? () => setState(() => _interval--) : null,
+                    tooltip: 'Decrease interval',
+                    onPressed: _interval > 1
+                        ? () => setState(() => _interval--)
+                        : null,
                     icon: const Icon(Icons.remove_circle_outline_rounded),
                   ),
-                  Text('$_interval', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  SizedBox(
+                    width: 32,
+                    child: Text(
+                      '$_interval',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
                   IconButton(
+                    tooltip: 'Increase interval',
                     onPressed: () => setState(() => _interval++),
                     icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
-                  Text(_frequency.name),
+                  // Flexible so a long unit name shortens instead of pushing
+                  // the stepper off the row.
+                  Flexible(
+                    child: Text(
+                      _intervalUnitLabel(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
                 ],
               ),
+              const SizedBox(height: AppTokens.gapSm),
               Row(
                 children: [
-                  Expanded(child: Text('Starts ${_shortDate(_startDate)}')),
+                  Expanded(
+                    child: Text(
+                      'Starts ${_shortDate(_startDate)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                   TextButton(
                     onPressed: () async {
                       final picked = await showDatePicker(
@@ -422,6 +536,17 @@ class _RecurringExpenseFormState extends State<_RecurringExpenseForm> {
         ),
       ),
     );
+  }
+
+  /// "day" / "days" etc, matching the chosen frequency and interval.
+  String _intervalUnitLabel() {
+    final unit = switch (_frequency) {
+      RecurringFrequency.daily => 'day',
+      RecurringFrequency.weekly => 'week',
+      RecurringFrequency.monthly => 'month',
+      RecurringFrequency.yearly => 'year',
+    };
+    return _interval == 1 ? unit : '${unit}s';
   }
 
   Future<void> _save() async {

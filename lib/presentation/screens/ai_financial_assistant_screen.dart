@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/models/ai_chat_message.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/models/financial_record_action.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../core/parser/transaction_parser_service.dart';
 import '../../../services/ai_financial_assistant_service.dart';
@@ -111,10 +112,15 @@ class _AiFinancialAssistantScreenState
           ),
         ),
         Container(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          padding: const EdgeInsets.fromLTRB(
+            AppTokens.gapMd,
+            AppTokens.gapSm,
+            AppTokens.gapMd,
+            AppTokens.gapMd,
+          ),
           decoration: BoxDecoration(
-            color: colorScheme.surface,
-            border: Border(top: BorderSide(color: colorScheme.outline)),
+            color: colorScheme.appCard,
+            border: Border(top: BorderSide(color: colorScheme.appBorder)),
           ),
           child: SafeArea(
             top: false,
@@ -495,19 +501,6 @@ class _ChatHistorySheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: colorScheme.onSurfaceVariant.withValues(
-                        alpha: 0.36,
-                      ),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
@@ -541,16 +534,15 @@ class _ChatHistorySheet extends StatelessWidget {
                       return Material(
                         color: isActive
                             ? colorScheme.primary.withValues(alpha: 0.10)
-                            : colorScheme.surface,
+                            : colorScheme.appCard,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(
+                            AppTokens.radiusMd,
+                          ),
                           side: BorderSide(
-                            
-                            
-                            
                             color: isActive
                                 ? colorScheme.primary
-                                : colorScheme.outline,
+                                : colorScheme.appBorder,
                           ),
                         ),
                         clipBehavior: Clip.antiAlias,
@@ -862,13 +854,25 @@ class _EmptyAssistantState extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 140),
+      padding: const EdgeInsets.fromLTRB(
+        AppTokens.pageGutter,
+        AppTokens.gapLg,
+        AppTokens.pageGutter,
+        AppTokens.gapXl,
+      ),
       children: [
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: colorScheme.primary,
-            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                colorScheme.primary,
+                Color.lerp(colorScheme.primary, colorScheme.tertiary, 0.42)!,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(AppTokens.radiusLg),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -913,17 +917,19 @@ class _PromptTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: colorScheme.appCard,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).colorScheme.outline),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
-        leading: const Icon(Icons.bolt_rounded),
-        title: Text(prompt),
+        leading: Icon(Icons.bolt_rounded, color: colorScheme.primary),
+        title: Text(prompt, maxLines: 2, overflow: TextOverflow.ellipsis),
         trailing: const Icon(Icons.chevron_right_rounded),
       ),
     );
@@ -949,10 +955,13 @@ class _ChatBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isUser
-              ? colorScheme.primary
-              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(12),
+          color: isUser ? colorScheme.primary : colorScheme.appCardMuted,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(AppTokens.radiusMd),
+            topRight: const Radius.circular(AppTokens.radiusMd),
+            bottomLeft: Radius.circular(isUser ? AppTokens.radiusMd : 4),
+            bottomRight: Radius.circular(isUser ? 4 : AppTokens.radiusMd),
+          ),
         ),
         child: isUser
             ? Text(
@@ -995,10 +1004,8 @@ class _TypingBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(12),
+          color: Theme.of(context).colorScheme.appCardMuted,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         ),
         child: const SizedBox(
           width: 46,

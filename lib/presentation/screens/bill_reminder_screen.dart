@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/components/app_widgets.dart';
 import '../../../core/models/bill_reminder.dart';
 import '../../../core/services/ocr_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/bill_reminder_service.dart';
 import '../../../services/user_settings_service.dart';
@@ -42,13 +44,30 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
             final reminders = snapshot.data ?? <BillReminder>[];
 
             return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 110),
+              padding: EdgeInsets.fromLTRB(
+                AppTokens.pageGutter,
+                AppTokens.gapMd,
+                AppTokens.pageGutter,
+                // Room for the extended FAB plus the gesture inset.
+                96 + MediaQuery.paddingOf(context).bottom,
+              ),
               children: [
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppTokens.gapLg),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    borderRadius: BorderRadius.circular(16),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        colorScheme.primary,
+                        Color.lerp(
+                          colorScheme.primary,
+                          colorScheme.tertiary,
+                          0.42,
+                        )!,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(AppTokens.radiusLg),
                   ),
                   child: Row(
                     children: [
@@ -275,10 +294,9 @@ class _ReminderFormSheetState extends State<_ReminderFormSheet> {
 
     return Padding(
       padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: AppTokens.gapLg,
+        right: AppTokens.gapLg,
+        bottom: MediaQuery.of(context).viewInsets.bottom + AppTokens.gapXl,
       ),
       child: SingleChildScrollView(
         child: Form(
@@ -287,42 +305,46 @@ class _ReminderFormSheetState extends State<_ReminderFormSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
+              // Title and the Scan button used to sit in a plain Row, so
+              // "Edit Bill Reminder" plus a scanning label overflowed on
+              // narrow screens and at larger text scales.
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    widget.reminder == null ? 'Add Bill Reminder' : 'Edit Bill Reminder',
-                    style: TextStyle(
-                      color: colorScheme.onSurface,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
+                  Expanded(
+                    child: Text(
+                      widget.reminder == null
+                          ? 'Add Bill Reminder'
+                          : 'Edit Bill Reminder',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurface,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _isScanning ? null : _showScanSourceDialog,
-                    icon: _isScanning
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.document_scanner_rounded, size: 18),
-                    label: Text(_isScanning ? 'Scanning...' : 'Scan Bill'),
+                  const SizedBox(width: AppTokens.gapSm),
+                  Flexible(
+                    child: OutlinedButton.icon(
+                      onPressed: _isScanning ? null : _showScanSourceDialog,
+                      icon: _isScanning
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.document_scanner_rounded, size: 18),
+                      label: Text(
+                        _isScanning ? 'Scanning...' : 'Scan Bill',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: AppTokens.gapLg),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -480,61 +502,114 @@ class _ReminderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final daysLeft = reminder.dueDate.difference(DateTime.now()).inDays + 1;
+    final statusColor = daysLeft <= 0
+        ? colorScheme.appExpense
+        : daysLeft <= 2
+        ? colorScheme.appWarning
+        : colorScheme.onSurfaceVariant;
 
     return Material(
-      color: colorScheme.surface,
+      color: colorScheme.appCard,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
       clipBehavior: Clip.antiAlias,
-      child: ListTile(
+      child: InkWell(
         onTap: onEdit,
-        leading: Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+        // A ListTile could not hold a Switch and a delete button plus the
+        // status line without crowding the title, so this lays out explicitly.
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppTokens.gapMd,
+            AppTokens.gapMd,
+            AppTokens.gapSm,
+            AppTokens.gapMd,
           ),
-          child: Icon(Icons.receipt_long_rounded, color: colorScheme.primary),
-        ),
-        title: Text(
-          reminder.title,
-          style: TextStyle(
-            color: colorScheme.onSurface,
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+                ),
+                child: Icon(
+                  Icons.receipt_long_rounded,
+                  color: colorScheme.primary,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: AppTokens.gapMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      reminder.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurface,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatStatus(daysLeft),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${_formatDate(reminder.dueDate)}'
+                      '${reminder.amount > 0 ? ' • ${MoneyUtils.formatAmount(reminder.amount)}' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppTokens.gapSm),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: reminder.enabled,
+                    onChanged: onEnabledChanged,
+                  ),
+                  IconButton(
+                    tooltip: 'Delete reminder',
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+            ],
           ),
-        ),
-        subtitle: Text(
-          '${_formatStatus(daysLeft)} • ${_formatDate(reminder.dueDate)}'
-          '${reminder.amount > 0 ? ' • ${MoneyUtils.formatAmount(reminder.amount)}' : ''}',
-          style: TextStyle(
-            color: colorScheme.onSurfaceVariant,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Switch(
-              value: reminder.enabled,
-              onChanged: onEnabledChanged,
-            ),
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline_rounded),
-            ),
-          ],
         ),
       ),
     );
   }
 
   static String _formatStatus(int daysLeft) {
-    if (daysLeft <= 0) {
+    if (daysLeft < 0) {
+      return 'Overdue';
+    }
+    if (daysLeft == 0) {
       return 'Due today';
     }
     if (daysLeft == 1) {
@@ -565,18 +640,20 @@ class _PickerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: colorScheme.appCardMuted,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(value),
+        leading: Icon(icon, color: colorScheme.onSurfaceVariant),
+        title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis),
         trailing: const Icon(Icons.chevron_right_rounded),
       ),
     );
@@ -590,47 +667,15 @@ class _EmptyReminderState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor),
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.notifications_active_outlined,
-            size: 42,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'No bill reminders yet',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Add your monthly bills and Smart Expense will alert you before they are due.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 14),
-          OutlinedButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Add first bill'),
-          ),
-        ],
-      ),
+    return EmptyStateCard(
+      icon: Icons.notifications_active_outlined,
+      title: 'No bill reminders yet',
+      message:
+          'Add your monthly bills and Smart Expense will alert you before '
+          'they are due.',
+      actionLabel: 'Add first bill',
+      onAction: onAdd,
+      margin: EdgeInsets.zero,
     );
   }
 }

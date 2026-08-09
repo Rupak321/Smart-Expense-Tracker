@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/models/expense_model.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/utils/money_utils.dart';
 import '../../services/user_data_service.dart';
 
@@ -89,8 +90,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
       padding: EdgeInsets.only(
         left: 20,
         right: 20,
-        top: 20,
-        bottom: bottomInset + 20,
+        bottom: bottomInset + AppTokens.gapXl,
       ),
       child: Form(
         key: _formKey,
@@ -100,23 +100,27 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Add Transaction',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+                  Expanded(
+                    child: Text(
+                      'Add Transaction',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: colorScheme.onSurface,
+                      ),
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.close, color: colorScheme.onSurface),
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close_rounded),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: AppTokens.gapMd),
 
               // Transaction Type Segmented Toggle Controls
               Row(
@@ -350,13 +354,13 @@ class _CategoryTile extends StatelessWidget {
     final color = selected ? colorScheme.primary : colorScheme.onSurfaceVariant;
 
     return Material(
-        color: selected
+      color: selected
           ? colorScheme.primary.withValues(alpha: 0.12)
-          : colorScheme.surface,
+          : colorScheme.appCard,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         side: BorderSide(
-          color: selected ? colorScheme.primary : colorScheme.outline,
+          color: selected ? colorScheme.primary : colorScheme.appBorder,
           width: selected ? 1.4 : 1,
         ),
       ),

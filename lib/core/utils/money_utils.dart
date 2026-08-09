@@ -63,11 +63,29 @@ class MoneyUtils {
         : '.${cents.toString().padLeft(2, '0')}';
     final sign = isNegative ? '-' : '';
 
-    return '$sign Rs. $rupeesText$decimalText';
+    return '${sign}Rs. $rupeesText$decimalText';
   }
 
   static String formatAmount(double amount) {
     return formatPaisa(amountToPaisa(amount));
+  }
+
+  /// Short form for axis ticks and tight badges: `Rs. 12.4k`, `Rs. 1.2L`.
+  static String formatCompactPaisa(int paisa) {
+    final isNegative = paisa < 0;
+    final rupees = paisa.abs() / 100;
+    final sign = isNegative ? '-' : '';
+
+    if (rupees >= 10000000) {
+      return '${sign}Rs. ${(rupees / 10000000).toStringAsFixed(1)}Cr';
+    }
+    if (rupees >= 100000) {
+      return '${sign}Rs. ${(rupees / 100000).toStringAsFixed(1)}L';
+    }
+    if (rupees >= 1000) {
+      return '${sign}Rs. ${(rupees / 1000).toStringAsFixed(1)}k';
+    }
+    return '${sign}Rs. ${rupees.round()}';
   }
 
   static String _formatWholeNumber(int value) {

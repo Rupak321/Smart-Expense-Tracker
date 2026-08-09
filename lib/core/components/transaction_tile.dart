@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 class TransactionTile extends StatelessWidget {
   final String title;
   final String category;
@@ -21,32 +23,36 @@ class TransactionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final amountColor = isExpense
-        ? const Color(0xFFE63946)
-        : colorScheme.primary;
+    final accent = isExpense ? colorScheme.appExpense : colorScheme.appIncome;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: AppTokens.gapSm),
       child: Material(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
+        color: colorScheme.appCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          side: BorderSide(color: colorScheme.appBorder),
+        ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTokens.gapMd,
+              vertical: 10,
+            ),
             child: Row(
               children: [
                 Container(
-                  width: 38,
-                  height: 38,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
+                    color: accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppTokens.radiusSm),
                   ),
-                  child: Icon(icon, color: colorScheme.primary, size: 21),
+                  child: Icon(icon, color: accent, size: 21),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: AppTokens.gapMd),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,13 +62,13 @@ class TransactionTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
                           height: 1.2,
                           color: colorScheme.onSurface,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: AppTokens.gapXs),
                       Text(
                         category,
                         maxLines: 1,
@@ -77,9 +83,11 @@ class TransactionTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: AppTokens.gapSm),
+                // Capped so a very large amount shrinks instead of pushing the
+                // title out of the row.
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 136),
+                  constraints: const BoxConstraints(maxWidth: 132),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerRight,
@@ -88,9 +96,9 @@ class TransactionTile extends StatelessWidget {
                       textAlign: TextAlign.right,
                       maxLines: 1,
                       style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 13.5,
-                        color: amountColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: accent,
                       ),
                     ),
                   ),

@@ -1,26 +1,25 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:convert';
 import 'dart:ui' as ui;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/components/app_widgets.dart';
 import '../../../core/models/expense_model.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/financial_report_service.dart';
 import '../../../services/user_data_service.dart';
 import 'all_expenses_screen.dart';
+import 'main_navigation.dart';
 
 class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
-
-  static const _ink = Color(0xFF1A1A2E);
 
   static void _showAnalyticsReportOptions(BuildContext context) {
     final theme = Theme.of(context);
@@ -200,12 +199,12 @@ class AnalyticsScreen extends StatelessWidget {
           content: Row(
             children: [
               SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              SizedBox(width: 12),
-              Text('Generating PDF...'),
+              SizedBox(width: AppTokens.gapMd),
+              Expanded(child: Text('Generating PDF...')),
             ],
           ),
           duration: Duration(seconds: 60),
@@ -213,7 +212,9 @@ class AnalyticsScreen extends StatelessWidget {
       );
 
       try {
-        final pdfFile = await FinancialReportService.generatePDFReport(forMonths: forMonths);
+        final pdfFile = await FinancialReportService.generatePDFReport(
+          forMonths: forMonths,
+        );
         if (!context.mounted) return;
 
         scaffold.hideCurrentSnackBar();
@@ -221,34 +222,29 @@ class AnalyticsScreen extends StatelessWidget {
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('Report saved: ${pdfFile.path.split('/').last}'),
+                Icon(
+                  Icons.check_circle_rounded,
+                  size: 18,
+                  color: theme.colorScheme.inversePrimary,
                 ),
-                IconButton(
-                  onPressed: () {
-                    scaffold.hideCurrentSnackBar();
-                    scaffold.showSnackBar(
-                      SnackBar(
-                        content: const Text('PDF saved successfully!'),
-                        action: SnackBarAction(
-                          label: 'Share',
-                          onPressed: () async {
-                            scaffold.hideCurrentSnackBar();
-                            await FinancialReportService.shareReport(forMonths: forMonths);
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.share, color: Colors.white, size: 18),
+                const SizedBox(width: AppTokens.gapMd),
+                Expanded(
+                  child: Text(
+                    'Saved ${pdfFile.path.split(Platform.pathSeparator).last}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
-            backgroundColor: Colors.green[700],
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'Share',
+              onPressed: () async {
+                scaffold.hideCurrentSnackBar();
+                await FinancialReportService.shareReport(forMonths: forMonths);
+              },
+            ),
+            duration: const Duration(seconds: 8),
           ),
         );
       } catch (e) {
@@ -256,8 +252,8 @@ class AnalyticsScreen extends StatelessWidget {
         scaffold.hideCurrentSnackBar();
         scaffold.showSnackBar(
           SnackBar(
-            content: Text('Failed to generate PDF: ${e.toString()}'),
-            backgroundColor: theme.colorScheme.error,
+            content: Text('Failed to generate PDF: $e'),
+            backgroundColor: theme.colorScheme.errorContainer,
           ),
         );
       }
@@ -316,9 +312,9 @@ class AnalyticsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
+                  color: theme.colorScheme.appCard,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.colorScheme.outline),
+                  border: Border.all(color: theme.colorScheme.appBorder),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -354,12 +350,20 @@ class AnalyticsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = NavShellInsets.of(context);
+
     return StreamBuilder<List<ExpenseModel>>(
       stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
-        final transactions = _sortedTransactions(snapshot.data ?? const <ExpenseModel>[]);
-        final expenses = transactions.where((transaction) => transaction.isExpense).toList();
-        final incomePaisa = _totalPaisa(transactions.where((transaction) => !transaction.isExpense));
+        final transactions = _sortedTransactions(
+          snapshot.data ?? const <ExpenseModel>[],
+        );
+        final expenses = transactions
+            .where((transaction) => transaction.isExpense)
+            .toList();
+        final incomePaisa = _totalPaisa(
+          transactions.where((transaction) => !transaction.isExpense),
+        );
         final expensePaisa = _totalPaisa(expenses);
         final categorySlices = _buildCategorySlices(expenses);
         final sevenDayTrend = _buildRecentTrend(expenses, dayCount: 7);
@@ -367,7 +371,13 @@ class AnalyticsScreen extends StatelessWidget {
 
         return CustomScrollView(
           slivers: [
-            const SliverToBoxAdapter(child: _Header()),
+            const SliverToBoxAdapter(
+              child: ScreenHeader(
+                title: 'Analytics',
+                subtitle: 'Where your money goes',
+                icon: Icons.insights_rounded,
+              ),
+            ),
             SliverToBoxAdapter(
               child: _SummaryBand(
                 incomePaisa: incomePaisa,
@@ -391,55 +401,47 @@ class AnalyticsScreen extends StatelessWidget {
                 thirtyDayPoints: thirtyDayTrend,
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Category Details',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
+            const SliverToBoxAdapter(
+              child: SectionHeader(title: 'Category Details'),
             ),
             if (categorySlices.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 170),
-                  child: Center(
-                    child: Text(
-                      'Add expenses to see detailed analytics',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
-                    ),
-                  ),
+              const SliverToBoxAdapter(
+                child: EmptyStateCard(
+                  icon: Icons.pie_chart_outline_rounded,
+                  title: 'Nothing to break down yet',
+                  message: 'Add a few expenses to see category analytics here.',
                 ),
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.pageGutter,
+                ),
                 sliver: SliverList.separated(
                   itemCount: categorySlices.length,
                   separatorBuilder: (context, index) =>
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppTokens.gapSm),
                   itemBuilder: (context, index) {
                     return _CategoryBreakdownRow(
                       slice: categorySlices[index],
                       maxPaisa: categorySlices.first.paisa,
+                      totalPaisa: expensePaisa,
                     );
                   },
                 ),
               ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.pageGutter,
+                  AppTokens.gapXl,
+                  AppTokens.pageGutter,
+                  bottomInset,
+                ),
                 child: FilledButton.icon(
                   onPressed: () => _showAnalyticsReportOptions(context),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
                   ),
                   icon: const Icon(Icons.picture_as_pdf_rounded),
                   label: const Text('Generate Report'),
@@ -559,794 +561,6 @@ class AnalyticsScreen extends StatelessWidget {
   }
 }
 
-class _FinancialAssistantPanel extends StatefulWidget {
-  final List<ExpenseModel> transactions;
-  final int expensePaisa;
-  final int incomePaisa;
-  final List<_CategorySlice> categorySlices;
-
-  const _FinancialAssistantPanel({
-    required this.transactions,
-    required this.expensePaisa,
-    required this.incomePaisa,
-    required this.categorySlices,
-  });
-
-  @override
-  State<_FinancialAssistantPanel> createState() =>
-      _FinancialAssistantPanelState();
-}
-
-class _FinancialAssistantPanelState extends State<_FinancialAssistantPanel> {
-  static const _apiKey = String.fromEnvironment(
-    'GROQ_API_KEY',
-    defaultValue: '',
-  );
-  static const _model = String.fromEnvironment(
-    'GROQ_MODEL',
-    defaultValue: 'llama-3.1-8b-instant',
-  );
-
-  final _questionController = TextEditingController();
-  String? _answer;
-  String? _error;
-  var _isLoading = false;
-
-  bool get _hasGroqApiKey => _apiKey.startsWith('gsk_');
-
-  @override
-  void dispose() {
-    _questionController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _askAssistant() async {
-    final question = _questionController.text.trim();
-    if (question.isEmpty || _isLoading) {
-      return;
-    }
-
-    if (!_hasGroqApiKey) {
-      setState(() {
-        _error = 'Add a valid GROQ_API_KEY to enable AI responses.';
-        _answer = null;
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _answer = null;
-    });
-
-    try {
-      final text = await _requestGroq(question);
-
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _answer = text.isNotEmpty
-            ? text
-            : 'I could not generate a report for this question.';
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _error = _friendlyGroqError(error);
-        _answer = null;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  void _useSuggestion(String question) {
-    _questionController.text = question;
-    _questionController.selection = TextSelection.fromPosition(
-      TextPosition(offset: _questionController.text.length),
-    );
-  }
-
-  Map<String, String> get _groqHeaders {
-    return {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'SmartExpense/1.0',
-      'Authorization': 'Bearer $_apiKey',
-    };
-  }
-
-  Future<String> _requestGroq(String question) async {
-    final payload = jsonEncode({
-      'model': _model,
-      'messages': [
-        {
-          'role': 'system',
-          'content':
-              'You are a smart, witty, and friendly financial companion (a "financial friend"). You have access to the user\'s financial snapshot, but DO NOT output a full report unless they explicitly ask for one or ask a question about their finances. If they just say "hi" or make small talk, respond casually, warmly, and playfully like a friend. When they DO ask for financial advice or a report, be highly analytical, point out money leaks, and use rich Markdown formatting (bolding, headers, bullet points, emojis). Always give highly specific, actionable advice based on their data. Keep it conversational, fun, and deeply insightful. Never be dull or generic.',
-        },
-        {
-          'role': 'user',
-          'content': _buildPrompt(question),
-        },
-      ],
-      'temperature': 0.4,
-      'max_tokens': 700,
-    });
-
-    Object? lastError;
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        final response = await http
-            .post(
-              Uri.https('api.groq.com', '/openai/v1/chat/completions'),
-              headers: _groqHeaders,
-              body: payload,
-            )
-            .timeout(const Duration(seconds: 35));
-
-        final data = _decodeJsonObject(response.body);
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw Exception(_groqErrorMessage(data, response.statusCode));
-        }
-
-        return _extractGroqText(data);
-      } catch (error) {
-        lastError = error;
-        if (attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 700));
-        }
-      }
-    }
-
-    throw Exception(lastError ?? 'Groq request failed.');
-  }
-
-  Map<String, dynamic> _decodeJsonObject(String body) {
-    final decoded = jsonDecode(body);
-    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
-  }
-
-  String _groqErrorMessage(Map<String, dynamic> data, int statusCode) {
-    final error = data['error'];
-    if (error is Map) {
-      final message = error['message']?.toString();
-      if (message?.isNotEmpty == true) {
-        return 'Groq HTTP $statusCode: $message';
-      }
-    }
-    return 'Groq HTTP $statusCode';
-  }
-
-  String _extractGroqText(Map<String, dynamic> data) {
-    final choices = data['choices'] as List<dynamic>?;
-    if (choices == null || choices.isEmpty) {
-      return '';
-    }
-
-    final firstChoice = choices.first;
-    if (firstChoice is! Map<String, dynamic>) {
-      return '';
-    }
-
-    final message = firstChoice['message'];
-    if (message is! Map<String, dynamic>) {
-      return '';
-    }
-
-    return message['content']?.toString().trim() ?? '';
-  }
-
-  String _friendlyGroqError(Object error) {
-    final details = error.toString().replaceFirst('Exception: ', '');
-    return 'Groq request failed. Check internet connection, then try again.\n\nDetails: $details';
-  }
-
-  String _buildPrompt(String question) {
-    final recent = widget.transactions.take(12).map((transaction) {
-      final type = transaction.isExpense ? 'expense' : 'income';
-      final date = transaction.date.toIso8601String().split('T').first;
-      return '- $type: ${transaction.title}, ${transaction.category}, ${MoneyUtils.formatPaisa(transaction.amountPaisa)}, $date';
-    }).join('\n');
-    final categories = widget.categorySlices.take(5).map((slice) {
-      return '- ${slice.label}: ${MoneyUtils.formatPaisa(slice.paisa)}';
-    }).join('\n');
-
-    return '''
-User question: $question
-
-Financial snapshot:
-- Total income: ${MoneyUtils.formatPaisa(widget.incomePaisa)}
-- Total expenses: ${MoneyUtils.formatPaisa(widget.expensePaisa)}
-- Balance: ${MoneyUtils.formatPaisa(widget.incomePaisa - widget.expensePaisa)}
-
-Top spending categories:
-${categories.isEmpty ? '- No expenses yet' : categories}
-
-Recent transactions:
-${recent.isEmpty ? '- No transactions yet' : recent}
-''';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.auto_awesome_rounded,
-                  color: colorScheme.primary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'AI Financial Assistant',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-              ),
-              // Generate Report Button - Enhanced button for comprehensive report generation
-              Container(
-                margin: const EdgeInsets.only(left: 8),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _showReportOptions(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: colorScheme.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.2)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.picture_as_pdf, size: 16, color: colorScheme.primary),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Generate Report',
-                            style: TextStyle(
-                              color: colorScheme.primary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (!_hasGroqApiKey) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Add a Groq API key at run time for AI-generated responses.',
-              style: TextStyle(
-                color: colorScheme.onSurfaceVariant,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _AssistantPromptChip(
-                label: 'Analyze my spending',
-                onTap: () => _useSuggestion(
-                  'Give me a brutally honest analysis of my recent spending and identify any money leaks.',
-                ),
-              ),
-              _AssistantPromptChip(
-                label: 'Generate weekly report',
-                onTap: () => _useSuggestion(
-                  'Generate a comprehensive weekly financial report with insights and emojis.',
-                ),
-              ),
-              _AssistantPromptChip(
-                label: 'Savings plan',
-                onTap: () => _useSuggestion(
-                  'Based strictly on my data, where can I cut costs to save 20% more this month?',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _questionController,
-            minLines: 1,
-            maxLines: 3,
-            textInputAction: TextInputAction.send,
-            onSubmitted: (_) => _askAssistant(),
-            decoration: InputDecoration(
-              hintText: 'Ask for advice or a spending report',
-              suffixIcon: IconButton(
-                tooltip: 'Ask AI',
-                onPressed: _isLoading ? null : _askAssistant,
-                icon: _isLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send_rounded),
-              ),
-            ),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              _error!,
-              style: TextStyle(
-                color: colorScheme.error,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-          if (_answer != null) ...[
-            const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: MarkdownBody(
-                data: _answer!,
-                styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(
-                    color: colorScheme.onSurface,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                  h1: TextStyle(color: colorScheme.primary, fontSize: 18, fontWeight: FontWeight.bold),
-                  h2: TextStyle(color: colorScheme.primary, fontSize: 16, fontWeight: FontWeight.bold),
-                  h3: TextStyle(color: colorScheme.primary, fontSize: 15, fontWeight: FontWeight.bold),
-                  listBullet: TextStyle(color: colorScheme.primary, fontSize: 14),
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // Show report options dialog
-  void _showReportOptions(BuildContext context) {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Generate Financial Report',
-                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Choose report options:',
-              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 16),
-            _ReportOptionButton(
-              icon: Icons.date_range,
-              title: 'Last 7 Days',
-              subtitle: 'Weekly spending analysis',
-              onTap: () => _generateReport(context, forMonths: 0),
-            ),
-            _ReportOptionButton(
-              icon: Icons.calendar_today,
-              title: 'Month to Date',
-              subtitle: 'Current month summary',
-              onTap: () => _generateReport(context, forMonths: 1),
-            ),
-            _ReportOptionButton(
-              icon: Icons.timeline,
-              title: 'Last 3 Months',
-              subtitle: 'Quarterly financial review',
-              onTap: () => _generateReport(context, forMonths: 3),
-            ),
-            _ReportOptionButton(
-              icon: Icons.library_books,
-              title: 'All Time',
-              subtitle: 'Comprehensive financial report',
-              onTap: () => _generateReport(context, forMonths: null),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _generateReport(BuildContext context, {int? forMonths}) async {
-    final nav = Navigator.of(context, rootNavigator: true);
-    final scaffold = ScaffoldMessenger.of(context);
-
-    if (nav.canPop()) {
-      nav.pop();
-    }
-
-    unawaited(
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => const AlertDialog(
-          content: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Expanded(
-                child: Text('Generating report...'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    try {
-      final reportContent = await FinancialReportService.generateProfessionalReport(
-        forMonths: forMonths,
-        reportType: 'financial',
-      );
-
-      if (!mounted) return;
-      if (nav.canPop()) {
-        nav.pop();
-      }
-      _showReportResult(context, reportContent, forMonths);
-    } catch (e) {
-      if (!mounted) return;
-      if (nav.canPop()) {
-        nav.pop();
-      }
-      scaffold.showSnackBar(
-        SnackBar(
-          content: Text('Failed to generate report: ${e.toString()}'),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    }
-  }
-
-  void _showReportResult(BuildContext context, String reportContent, int? forMonths) {
-    final theme = Theme.of(context);
-    final scaffold = ScaffoldMessenger.of(context);
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                forMonths == 0 ? 'Weekly Report' :
-                forMonths == 1 ? 'Monthly Report' :
-                forMonths == 3 ? 'Quarterly Report' :
-                'Comprehensive Financial Report',
-                style: theme.textTheme.titleLarge?.copyWith(color: theme.colorScheme.onSurface),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.colorScheme.outline),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildReportPreview('Report Content', Icons.description, () {
-                      // Show full report
-                      scaffold.hideCurrentSnackBar();
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: Row(
-                            children: [
-                              Icon(Icons.picture_as_pdf, color: theme.colorScheme.primary),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  forMonths == 0 ? 'Weekly' :
-                                  forMonths == 1 ? 'Monthly' :
-                                  forMonths == 3 ? 'Quarterly' :
-                                  'Comprehensive Report',
-                                  style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface),
-                                ),
-                              ),
-                            ],
-                          ),
-                          content: Container(
-                            width: double.maxFinite,
-                            height: 400,
-                            child: MarkdownBody(data: reportContent),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: const Text('Close'),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () async {
-                                Navigator.of(context).pop(); // Close preview
-                                await FinancialReportService.shareReport(forMonths: forMonths);
-                              },
-                              icon: const Icon(Icons.share),
-                              label: const Text('Share Report'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.colorScheme.primary,
-                                foregroundColor: theme.colorScheme.onPrimary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 12),
-                    _buildReportPreview('Download PDF', Icons.picture_as_pdf, () async {
-                      scaffold.showSnackBar(
-                        const SnackBar(
-                          content: Row(
-                            children: [
-                              SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              ),
-                              const SizedBox(width: 12),
-                              Text('Generating PDF...'),
-                            ],
-                          ),
-                          duration: Duration(seconds: 60),
-                        ),
-                      );
-
-                      try {
-                        final pdfFile = await FinancialReportService.generatePDFReport(forMonths: forMonths);
-                        if (!mounted) return;
-
-                        scaffold.hideCurrentSnackBar();
-                        scaffold.showSnackBar(
-                          SnackBar(
-                            content: Row(
-                              children: [
-                                const Icon(Icons.check_circle, color: Colors.white),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text('Report saved: ${pdfFile.path.split('/').last}'),
-                                ),
-                                IconButton(
-                                  onPressed: () {
-                                    scaffold.hideCurrentSnackBar();
-                                    scaffold.showSnackBar(
-                                      SnackBar(
-                                        content: const Text('PDF saved successfully!'),
-                                        action: SnackBarAction(
-                                          label: 'Share',
-                                          onPressed: () async {
-                                            scaffold.hideCurrentSnackBar();
-                                            await FinancialReportService.shareReport(forMonths: forMonths);
-                                          },
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.share, color: Colors.white, size: 18),
-                                ),
-                              ],
-                            ),
-                            backgroundColor: Colors.green[700],
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        );
-                      } catch (e) {
-                        if (!mounted) return;
-                        scaffold.hideCurrentSnackBar();
-                        scaffold.showSnackBar(
-                          SnackBar(
-                            content: Text('Failed to generate PDF: ${e.toString()}'),
-                            backgroundColor: theme.colorScheme.error,
-                          ),
-                        );
-                      }
-                    }),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildReportPreview(String title, IconData icon, VoidCallback onTap) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.colorScheme.outline),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: theme.colorScheme.primary, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Generate CA-style professional report with AI insights',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.chevron_right,
-              color: theme.colorScheme.onSurfaceVariant,
-              size: 20,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AssistantPromptChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _AssistantPromptChip({
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return ActionChip(
-      avatar: Icon(
-        Icons.bolt_rounded,
-        size: 16,
-        color: colorScheme.primary,
-      ),
-      label: Text(label),
-      labelStyle: TextStyle(
-        color: colorScheme.onSurface,
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-      ),
-      backgroundColor: colorScheme.primary.withValues(alpha: 0.08),
-      side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.18)),
-      onPressed: onTap,
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header();
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Analytics',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: colorScheme.onSurface,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.insights_rounded,
-              color: colorScheme.primary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _SummaryBand extends StatelessWidget {
   final int incomePaisa;
   final int expensePaisa;
@@ -1362,32 +576,41 @@ class _SummaryBand extends StatelessWidget {
   Widget build(BuildContext context) {
     final balancePaisa = incomePaisa - expensePaisa;
 
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _MetricCard(
-              label: 'Balance',
-              amount: MoneyUtils.formatPaisa(balancePaisa),
-              icon: Icons.account_balance_wallet_rounded,
-              color: Theme.of(context).colorScheme.primary,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.pageGutter,
+        vertical: AppTokens.gapSm,
+      ),
+      // Stretch keeps both cards the same height even though each sizes to its
+      // own content.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _MetricCard(
+                label: 'Balance',
+                amount: MoneyUtils.formatPaisa(balancePaisa),
+                icon: Icons.account_balance_wallet_rounded,
+                color: balancePaisa < 0
+                    ? colorScheme.appExpense
+                    : colorScheme.primary,
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: onSpentTap,
+            const SizedBox(width: AppTokens.gapMd),
+            Expanded(
               child: _MetricCard(
                 label: 'Spent',
                 amount: MoneyUtils.formatPaisa(expensePaisa),
                 icon: Icons.trending_down_rounded,
-                color: Theme.of(context).colorScheme.error,
+                color: colorScheme.appExpense,
+                onTap: onSpentTap,
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1398,62 +621,89 @@ class _MetricCard extends StatelessWidget {
   final String amount;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _MetricCard({
     required this.label,
     required this.amount,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 104,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.appCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          // No fixed height: the card grows with the text scale instead of
+          // clipping the amount.
+          padding: const EdgeInsets.all(AppTokens.gapLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: color, size: 20),
-              const Spacer(),
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              Row(
+                children: [
+                  Icon(icon, color: color, size: 20),
+                  const Spacer(),
+                  if (onTap != null)
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: colorScheme.onSurfaceVariant,
+                    )
+                  else
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapXs),
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    amount,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-          const Spacer(),
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              amount,
-              maxLines: 1,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1526,44 +776,44 @@ class _ChartPanelState extends State<_ChartPanel> {
     return RepaintBoundary(
       key: _boundaryKey,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.fromLTRB(
+          AppTokens.pageGutter,
+          AppTokens.gapSm,
+          AppTokens.pageGutter,
+          0,
+        ),
+        padding: const EdgeInsets.all(AppTokens.gapLg),
         decoration: BoxDecoration(
-          color: colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: colorScheme.outline),
+          color: colorScheme.appCard,
+          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+          border: Border.all(color: colorScheme.appBorder),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Expense Breakdown',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.w800,
-                      ),
+                Expanded(
+                  child: Text(
+                    'Expense Breakdown',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
-                if (widget.slices.isNotEmpty)
-                  _isSharing
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: SizedBox.shrink(),
-                        )
-                      : IconButton(
-                          icon: const Icon(Icons.share_rounded, size: 20),
-                          tooltip: 'Share breakdown chart',
-                          onPressed: _shareChart,
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
+                if (widget.slices.isNotEmpty && !_isSharing)
+                  IconButton(
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    tooltip: 'Share breakdown chart',
+                    onPressed: _shareChart,
+                    visualDensity: VisualDensity.compact,
+                  ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: AppTokens.gapMd),
             Center(
               child: SizedBox(
                 width: 190,
@@ -1573,7 +823,7 @@ class _ChartPanelState extends State<_ChartPanel> {
                   children: [
                     CustomPaint(
                       size: const Size.square(176),
-                      painter: _DonutChartPainter(slices: widget.slices, backgroundColor: colorScheme.outline),
+                      painter: _DonutChartPainter(slices: widget.slices, backgroundColor: colorScheme.appCardMuted),
                     ),
                     Column(
                       mainAxisSize: MainAxisSize.min,
@@ -1626,13 +876,18 @@ class _LegendList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final visibleSlices = slices.take(4).toList();
+    final hiddenCount = slices.length - visibleSlices.length;
 
     if (visibleSlices.isEmpty) {
       return Center(
         child: Text(
           'No expenses yet',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+          style: TextStyle(
+            color: colorScheme.onSurfaceVariant,
+            fontSize: 13,
+          ),
         ),
       );
     }
@@ -1652,28 +907,42 @@ class _LegendList extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppTokens.gapSm),
                 Expanded(
                   child: Text(
                     slice.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: colorScheme.onSurface,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
+                const SizedBox(width: AppTokens.gapSm),
                 Text(
                   slice.percentLabel(totalExpensePaisa),
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: colorScheme.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
+            ),
+          ),
+        // Previously the extra categories just vanished with no hint.
+        if (hiddenCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: AppTokens.gapSm),
+            child: Text(
+              '+$hiddenCount more in Category Details',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
       ],
@@ -1769,62 +1038,55 @@ class _TrendPanelState extends State<_TrendPanel> {
         : changePaisa / points.first.paisa * 100;
     final isIncrease = changePaisa >= 0;
 
+    final trendColor = isIncrease
+        ? colorScheme.appExpense
+        : colorScheme.appIncome;
+
     return RepaintBoundary(
       key: _boundaryKey,
       child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+        margin: const EdgeInsets.fromLTRB(
+          AppTokens.pageGutter,
+          AppTokens.gapMd,
+          AppTokens.pageGutter,
+          0,
+        ),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+        ),
         decoration: BoxDecoration(
-          color: colorScheme.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: colorScheme.outline),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
+          color: colorScheme.appCard,
+          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+          border: Border.all(color: colorScheme.appBorder),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Last $_dayCount Days',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  color: colorScheme.onSurface,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                          const SizedBox(width: 8),
-                          if (points.isNotEmpty)
-                            _isSharing
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: SizedBox.shrink(),
-                                  )
-                                : IconButton(
-                                    icon: const Icon(Icons.share_rounded, size: 18),
-                                    tooltip: 'Share trend chart',
-                                    onPressed: _shareChart,
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  ),
-                        ],
+                      Text(
+                        'Last $_dayCount Days',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       const SizedBox(height: 3),
                       Text(
                         'Expense trend',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: colorScheme.onSurfaceVariant,
                           fontSize: 13,
@@ -1834,87 +1096,108 @@ class _TrendPanelState extends State<_TrendPanel> {
                     ],
                   ),
                 ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    MoneyUtils.formatPaisa(totalPaisa),
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: colorScheme.onSurface,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color:
-                          (isIncrease ? colorScheme.error : _TrendColors.green)
-                              .withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          isIncrease
-                              ? Icons.trending_up_rounded
-                              : Icons.trending_down_rounded,
-                          color:
-                              isIncrease ? colorScheme.error : _TrendColors.green,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${isIncrease ? '+' : ''}${changePercent.toStringAsFixed(1)}%',
+                const SizedBox(width: AppTokens.gapSm),
+                // Right column is width-capped; without this the total pushed
+                // the whole header off-screen for six-figure amounts.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          MoneyUtils.formatPaisa(totalPaisa),
+                          maxLines: 1,
                           style: TextStyle(
-                            color: isIncrease ? colorScheme.error : _TrendColors.green,
-                            fontSize: 13,
+                            color: colorScheme.onSurface,
+                            fontSize: 20,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: AppTokens.gapSm),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: trendColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(
+                            AppTokens.radiusPill,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isIncrease
+                                  ? Icons.trending_up_rounded
+                                  : Icons.trending_down_rounded,
+                              color: trendColor,
+                              size: 15,
+                            ),
+                            const SizedBox(width: AppTokens.gapXs),
+                            Flexible(
+                              child: Text(
+                                '${isIncrease ? '+' : ''}'
+                                '${changePercent.toStringAsFixed(1)}%',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: trendColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _TrendRangeSwitch(
-            selectedRange: _selectedRange,
-            onChanged: (range) {
-              setState(() {
-                _selectedRange = range;
-              });
-            },
-          ),
-          const SizedBox(height: 22),
-          TweenAnimationBuilder<double>(
-            key: ValueKey(
-              '$_dayCount-${points.map((point) => point.paisa).join(',')}',
+                ),
+                if (points.isNotEmpty && !_isSharing)
+                  IconButton(
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    tooltip: 'Share trend chart',
+                    onPressed: _shareChart,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
             ),
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 650),
-            curve: Curves.easeOutQuart,
-            builder: (context, progress, child) {
-              return SizedBox(
-                height: points.length > 7 ? 220 : 250,
-                child: _TrendLineChart(points: points, progress: progress),
-              );
-            },
-          ),
-        ],
+            const SizedBox(height: AppTokens.gapLg),
+            _TrendRangeSwitch(
+              selectedRange: _selectedRange,
+              onChanged: (range) {
+                setState(() {
+                  _selectedRange = range;
+                });
+              },
+            ),
+            const SizedBox(height: 22),
+            TweenAnimationBuilder<double>(
+              key: ValueKey(
+                '$_dayCount-${points.map((point) => point.paisa).join(',')}',
+              ),
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 650),
+              curve: Curves.easeOutQuart,
+              builder: (context, progress, child) {
+                return SizedBox(
+                  height: points.length > 7 ? 210 : 240,
+                  child: _TrendLineChart(points: points, progress: progress),
+                );
+              },
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 enum _TrendRange { sevenDays, thirtyDays }
@@ -2031,13 +1314,21 @@ class _TrendLineChart extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     for (final label in labels)
-                      Text(
-                        hasValues ? _formatAxisPaisa(label) : 'Rs. 0',
-                        maxLines: 1,
-                        style: TextStyle(
-                          color: colorScheme.onSurfaceVariant,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                      // Shrink-to-fit keeps six-figure ticks inside the fixed
+                      // gutter at any text scale.
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          hasValues
+                              ? MoneyUtils.formatCompactPaisa(label)
+                              : 'Rs. 0',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                   ],
@@ -2050,7 +1341,7 @@ class _TrendLineChart extends StatelessWidget {
                     points: points,
                     progress: progress,
                     lineColor: const Color(0xFFF6B900),
-                    gridColor: colorScheme.outline.withValues(alpha: 0.55),
+                    gridColor: colorScheme.appBorder,
                   ),
                 ),
               ),
@@ -2130,16 +1421,6 @@ class _TrendLineChart extends StatelessWidget {
     return indexes.map((index) => points[index].label).toList();
   }
 
-  String _formatAxisPaisa(int paisa) {
-    final rupees = paisa / 100;
-    if (rupees >= 100000) {
-      return 'Rs. ${(rupees / 100000).toStringAsFixed(1)}L';
-    }
-    if (rupees >= 1000) {
-      return 'Rs. ${(rupees / 1000).toStringAsFixed(1)}k';
-    }
-    return 'Rs. ${rupees.round()}';
-  }
 }
 
 class _SparseTrendLabels extends StatelessWidget {
@@ -2179,22 +1460,27 @@ class _TrendChangeLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isIncrease = value >= 0;
-    final color =
-        isIncrease ? _TrendColors.green : Theme.of(context).colorScheme.error;
+    // Spending more day-over-day is the bad direction, so it reads red here
+    // exactly like the panel header above.
+    final color = isIncrease
+        ? Theme.of(context).colorScheme.appExpense
+        : Theme.of(context).colorScheme.appIncome;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
           isIncrease
               ? Icons.arrow_drop_up_rounded
               : Icons.arrow_drop_down_rounded,
           color: color,
-          size: 20,
+          size: 18,
         ),
         FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            '${isIncrease ? '+' : '-'}${MoneyUtils.formatPaisa(value.abs())}',
+            '${isIncrease ? '+' : '-'}'
+            '${MoneyUtils.formatCompactPaisa(value.abs())}',
             maxLines: 1,
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -2350,25 +1636,32 @@ class _TrendLinePainter extends CustomPainter {
   }
 }
 
-class _TrendColors {
-  static const green = Color(0xFF2E9D57);
-}
-
 class _CategoryBreakdownRow extends StatelessWidget {
   final _CategorySlice slice;
   final int maxPaisa;
+  final int totalPaisa;
 
-  const _CategoryBreakdownRow({required this.slice, required this.maxPaisa});
+  const _CategoryBreakdownRow({
+    required this.slice,
+    required this.maxPaisa,
+    required this.totalPaisa,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
-      height: 76,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      // Height comes from the content, so a large text scale grows the row
+      // instead of overflowing it.
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.gapLg,
+        vertical: AppTokens.gapMd,
+      ),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        color: colorScheme.appCard,
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        border: Border.all(color: colorScheme.appBorder),
       ),
       child: Row(
         children: [
@@ -2376,47 +1669,76 @@ class _CategoryBreakdownRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: slice.color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(10),
+              color: slice.color.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(AppTokens.radiusSm),
             ),
             child: Icon(slice.icon, color: slice.color, size: 22),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppTokens.gapMd),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  slice.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AnalyticsScreen._ink,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        slice.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          // Was a hardcoded near-black that vanished in dark
+                          // mode.
+                          color: colorScheme.onSurface,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppTokens.gapSm),
+                    // Capped and shrink-to-fit so long amounts never push the
+                    // row past its width.
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 128),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          MoneyUtils.formatPaisa(slice.paisa),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppTokens.gapSm),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(AppTokens.radiusPill),
                   child: LinearProgressIndicator(
-                    minHeight: 5,
+                    minHeight: 6,
                     value: maxPaisa == 0 ? 0 : slice.paisa / maxPaisa,
                     color: slice.color,
-                    backgroundColor: Theme.of(context).colorScheme.outline,
+                    backgroundColor: colorScheme.appCardMuted,
+                  ),
+                ),
+                const SizedBox(height: AppTokens.gapXs + 2),
+                Text(
+                  '${slice.percentLabel(totalPaisa)} of total spending',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            MoneyUtils.formatPaisa(slice.paisa),
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -2526,9 +1848,9 @@ class _AnalyticsReportPreview extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
+          color: theme.colorScheme.appCard,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: theme.colorScheme.outline),
+          border: Border.all(color: theme.colorScheme.appBorder),
         ),
         child: Row(
           children: [
@@ -2592,9 +1914,9 @@ class _ReportOptionButton extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: colorScheme.surface,
+            color: colorScheme.appCard,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: colorScheme.outline.withValues(alpha: 0.5)),
+            border: Border.all(color: colorScheme.appBorder),
           ),
           child: Row(
             children: [

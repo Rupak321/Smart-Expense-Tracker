@@ -710,6 +710,58 @@ FORMAT
 ''';
   }
 
+  /// True when the message is asking *about* money rather than reporting it.
+  ///
+  /// Without this, "should I send 5000 to mom?" matches a high-confidence
+  /// relation rule in the parser and gets offered as a transaction to save,
+  /// even though it is a question about something that has not happened.
+  static bool looksLikeQuestionOrHypothetical(String text) {
+    final lower = text.toLowerCase().trim();
+    if (lower.endsWith('?')) {
+      return true;
+    }
+
+    const starters = [
+      'can i',
+      'can we',
+      'could i',
+      'should i',
+      'shall i',
+      'would it',
+      'do i',
+      'am i',
+      'is it',
+      'what',
+      'how',
+      'why',
+      'when',
+      'where',
+      'which',
+      'who',
+    ];
+    if (starters.any((starter) => lower.startsWith('$starter '))) {
+      return true;
+    }
+
+    const hypothetical = [
+      'afford',
+      'planning to',
+      'plan to',
+      'thinking of',
+      'thinking about',
+      'want to buy',
+      'wanna buy',
+      'going to buy',
+      'if i ',
+      'suppose',
+      'advice',
+      'advise',
+      'suggest',
+      'recommend',
+    ];
+    return hypothetical.any(lower.contains);
+  }
+
   /// Cheap gate before spending a network call on action classification.
   ///
   /// Deliberately permissive: a question that slips through only costs one
@@ -720,26 +772,19 @@ FORMAT
 
     // Advice and analysis are never record mutations, however many numbers
     // they contain.
-    const questionCues = [
-      'can i afford',
-      'should i',
-      'how much',
-      'how can',
-      'how do i',
-      'why ',
-      'what if',
-      'where am i',
-      'suggest',
-      'advice',
-      'advise',
-      'plan',
+    if (looksLikeQuestionOrHypothetical(text)) {
+      return false;
+    }
+
+    const analysisCues = [
       'report',
       'analys',
       'summary',
       'breakdown',
       'compare',
+      'review',
     ];
-    if (questionCues.any(text.contains)) {
+    if (analysisCues.any(text.contains)) {
       return false;
     }
 

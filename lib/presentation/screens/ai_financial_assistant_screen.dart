@@ -189,8 +189,17 @@ class _AiFinancialAssistantScreenState
       // proposed record. It still goes through confirmation — this used to
       // save silently, which meant a misparse wrote a wrong number into the
       // ledger with nothing to undo it.
-      final parsed = await TransactionParserService().parse(text);
-      if (parsed.type != TransactionType.unknown &&
+      //
+      // Questions are excluded first: "should I send 5000 to mom?" matches a
+      // high-confidence relation rule, but it is asking about a transfer, not
+      // reporting one.
+      final isQuestion =
+          AiFinancialAssistantService.looksLikeQuestionOrHypothetical(text);
+      final parsed = isQuestion
+          ? null
+          : await TransactionParserService().parse(text);
+      if (parsed != null &&
+          parsed.type != TransactionType.unknown &&
           parsed.amount > 0 &&
           parsed.confidence >= 0.85 &&
           mounted) {
@@ -1156,12 +1165,188 @@ class _EmptyAssistantState extends StatelessWidget {
             ],
           ),
         ),
+        if (data != null && data.hasData) ...[
+          const SizedBox(height: AppTokens.gapLg),
+          _BriefingCard(insights: data),
+        ],
         const SizedBox(height: AppTokens.gapLg),
         for (final prompt in _prompts()) ...[
           _PromptTile(prompt: prompt, onTap: () => onPrompt(prompt)),
           const SizedBox(height: AppTokens.gapSm),
         ],
       ],
+    );
+  }
+}
+
+/// The month at a glance, computed locally.
+///
+/// Everything here is exact arithmetic over the user's own records, so it is
+/// correct and available even before the assistant makes a single API call.
+class _BriefingCard extends StatelessWidget {
+  final FinancialInsights insights;
+
+  const _BriefingCard({required this.insights});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final month = insights.thisMonth;
+    final note = insights.concerns.isNotEmpty
+        ? insights.concerns.first
+        : insights.wins.isNotEmpty
+        ? insights.wins.first
+        : null;
+    final isConcern = insights.concerns.isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(AppTokens.gapLg),
+      decoration: BoxDecoration(
+        color: colorScheme.appCard,
+        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+        border: Border.all(color: colorScheme.appBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'This month so far',
+            style: TextStyle(
+              color: colorScheme.onSurfaceVariant,
+              fontSize: 11,
+              letterSpacing: 0.7,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: AppTokens.gapMd),
+          Row(
+            children: [
+              _Figure(
+                label: 'Came in',
+                paisa: month.incomePaisa,
+                color: colorScheme.appIncome,
+              ),
+              _Figure(
+                label: 'Went out',
+                paisa: month.expensePaisa,
+                color: colorScheme.appExpense,
+              ),
+              _Figure(
+                label: 'Difference',
+                paisa: month.netPaisa,
+                color: month.netPaisa < 0
+                    ? colorScheme.appExpense
+                    : colorScheme.primary,
+              ),
+            ],
+          ),
+          if (insights.dailyBurnPaisa > 0) ...[
+            const SizedBox(height: AppTokens.gapMd),
+            Text(
+              'Averaging '
+              '${MoneyUtils.formatPaisa(insights.dailyBurnPaisa)} a day '
+              'over the last 30 days.',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (note != null) ...[
+            const SizedBox(height: AppTokens.gapMd),
+            Container(
+              padding: const EdgeInsets.all(AppTokens.gapMd),
+              decoration: BoxDecoration(
+                color:
+                    (isConcern
+                            ? colorScheme.appWarning
+                            : colorScheme.appIncome)
+                        .withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isConcern
+                        ? Icons.priority_high_rounded
+                        : Icons.celebration_rounded,
+                    size: 16,
+                    color: isConcern
+                        ? colorScheme.appWarning
+                        : colorScheme.appIncome,
+                  ),
+                  const SizedBox(width: AppTokens.gapSm),
+                  Expanded(
+                    child: Text(
+                      note,
+                      style: TextStyle(
+                        color: colorScheme.onSurface,
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Figure extends StatelessWidget {
+  final String label;
+  final int paisa;
+  final Color color;
+
+  const _Figure({
+    required this.label,
+    required this.paisa,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                MoneyUtils.formatCompactPaisa(paisa),
+                maxLines: 1,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

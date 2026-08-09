@@ -315,7 +315,12 @@ class FinancialInsightsService {
       }
     }
 
-    if (lastMonth.expensePaisa > 0 &&
+    // Only a real win once there is something recorded to compare. Early in a
+    // month an empty ledger looks like a huge drop in spending, and
+    // congratulating someone for not having logged anything yet is worse than
+    // saying nothing.
+    if (thisMonth.hasActivity &&
+        lastMonth.expensePaisa > 0 &&
         thisMonth.expensePaisa < lastMonth.expensePaisa) {
       final saved = lastMonth.expensePaisa - thisMonth.expensePaisa;
       wins.add(

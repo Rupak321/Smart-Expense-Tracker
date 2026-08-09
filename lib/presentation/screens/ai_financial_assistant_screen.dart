@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -40,6 +42,15 @@ class _AiFinancialAssistantScreenState
   /// Kept so a failed turn can be retried without retyping.
   String? _lastFailedQuestion;
 
+  /// Held explicitly rather than via StreamBuilder.
+  ///
+  /// A StreamBuilder in build() rebuilt its stream on every build, and its
+  /// listener compared message Lists by identity, so each emission scheduled a
+  /// setState that caused another build, another stream and another emission —
+  /// an endless rebuild loop. Its stale queued callbacks also raced with
+  /// session switching, which is why "New chat" appeared to do nothing.
+  StreamSubscription<AiChatSession?>? _sessionSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +59,7 @@ class _AiFinancialAssistantScreenState
 
   @override
   void dispose() {
+    _sessionSubscription?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -56,12 +68,45 @@ class _AiFinancialAssistantScreenState
   Future<void> _startFreshSession() async {
     final session = await AiFinancialAssistantService.createStartupSession();
     if (!mounted) return;
+    _adoptSession(session, isBooting: false);
+    _refreshInsights();
+  }
+
+  /// Makes [session] current and listens to just that session's document.
+  void _adoptSession(AiChatSession session, {bool? isBooting}) {
     setState(() {
       _session = session;
       _messages = session.messages;
-      _isBooting = false;
+      if (isBooting != null) {
+        _isBooting = isBooting;
+      }
     });
-    _refreshInsights();
+
+    _sessionSubscription?.cancel();
+    _sessionSubscription = UserSettingsService.aiSessionStream(session.id)
+        .listen((remote) {
+          if (!mounted || remote == null) return;
+          // Ignore late emissions from a session the user has moved on from,
+          // and never fight the in-flight turn for control of the list.
+          if (_isSending || remote.id != _session?.id) return;
+          if (_sameMessages(remote.messages, _messages)) return;
+          setState(() {
+            _session = remote;
+            _messages = remote.messages;
+          });
+        });
+  }
+
+  /// Compares by content, not by list identity.
+  static bool _sameMessages(List<AiChatMessage> a, List<AiChatMessage> b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (a[index].id != b[index].id ||
+          a[index].content != b[index].content) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> _refreshInsights() async {
@@ -90,59 +135,36 @@ class _AiFinancialAssistantScreenState
           onNewChat: _newChat,
         ),
         Expanded(
-          child: StreamBuilder<AiChatSession?>(
-            stream: _session != null
-                ? UserSettingsService.aiSessionStream(_session!.id)
-                : const Stream<AiChatSession?>.empty(),
-            builder: (context, snapshot) {
-              if (snapshot.hasData && !_isSending) {
-                final sessionData = snapshot.data!;
-                if (_session == null ||
-                    _session!.messages != sessionData.messages) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() {
-                      _session = sessionData;
-                      _messages = sessionData.messages;
-                    });
-                  });
-                }
-              }
-
-              if (_messages.isEmpty) {
-                return _EmptyAssistantState(
+          child: _messages.isEmpty
+              ? _EmptyAssistantState(
                   insights: _insights,
                   onPrompt: _sendSuggestion,
-                );
-              }
-
-              return ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(
-                  AppTokens.pageGutter,
-                  AppTokens.gapSm,
-                  AppTokens.pageGutter,
-                  AppTokens.gapMd,
+                )
+              : ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.fromLTRB(
+                    AppTokens.pageGutter,
+                    AppTokens.gapSm,
+                    AppTokens.pageGutter,
+                    AppTokens.gapMd,
+                  ),
+                  itemCount: _messages.length + (_isSending ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index >= _messages.length) {
+                      return const _TypingBubble();
+                    }
+                    final message = _messages[index];
+                    final isLast = index == _messages.length - 1;
+                    return _ChatBubble(
+                      message: message,
+                      showRetry:
+                          isLast &&
+                          message.role != 'user' &&
+                          _lastFailedQuestion != null,
+                      onRetry: _retryLast,
+                    );
+                  },
                 ),
-                itemCount: _messages.length + (_isSending ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index >= _messages.length) {
-                    return const _TypingBubble();
-                  }
-                  final message = _messages[index];
-                  final isLast = index == _messages.length - 1;
-                  return _ChatBubble(
-                    message: message,
-                    showRetry:
-                        isLast &&
-                        message.role != 'user' &&
-                        _lastFailedQuestion != null,
-                    onRetry: _retryLast,
-                  );
-                },
-              );
-            },
-          ),
         ),
         _Composer(
           controller: _controller,
@@ -319,12 +341,8 @@ class _AiFinancialAssistantScreenState
 
   Future<void> _newChat() async {
     final session = await AiFinancialAssistantService.createSession();
-    if (mounted) {
-      setState(() {
-        _session = session;
-        _messages = session.messages;
-      });
-    }
+    if (!mounted) return;
+    _adoptSession(session);
     _refreshInsights();
   }
 
@@ -334,10 +352,7 @@ class _AiFinancialAssistantScreenState
       session.id,
     );
     if (!mounted || freshSession == null) return;
-    setState(() {
-      _session = freshSession;
-      _messages = freshSession.messages;
-    });
+    _adoptSession(freshSession);
     _scrollToBottom();
   }
 
@@ -349,17 +364,11 @@ class _AiFinancialAssistantScreenState
         : await AiFinancialAssistantService.getSession(activeId);
     if (!mounted) return;
     if (activeSession != null) {
-      setState(() {
-        _session = activeSession;
-        _messages = activeSession.messages;
-      });
+      _adoptSession(activeSession);
     } else {
       final newSession = await AiFinancialAssistantService.createSession();
       if (!mounted) return;
-      setState(() {
-        _session = newSession;
-        _messages = newSession.messages;
-      });
+      _adoptSession(newSession);
     }
   }
 
@@ -1244,8 +1253,8 @@ class _BriefingCard extends StatelessWidget {
             const SizedBox(height: AppTokens.gapMd),
             Text(
               'Averaging '
-              '${MoneyUtils.formatPaisa(insights.dailyBurnPaisa)} a day '
-              'over the last 30 days.',
+              '${MoneyUtils.formatPaisa(insights.dailyBurnRoundedPaisa)} '
+              'a day over the last 30 days.',
               style: TextStyle(
                 color: colorScheme.onSurfaceVariant,
                 fontSize: 12,

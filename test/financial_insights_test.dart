@@ -205,6 +205,22 @@ void main() {
       expect(insights.runwayDays, isNull);
     });
 
+    test('rounds the daily average to whole rupees for display', () {
+      final insights = build([
+        tx(
+          amount: 57050,
+          isExpense: true,
+          date: now.subtract(const Duration(days: 1)),
+        ),
+      ]);
+
+      // 57,050 / 30 = 1,901.666..., which should not be shown to that
+      // precision.
+      expect(insights.dailyBurnPaisa, 190167);
+      expect(insights.dailyBurnRoundedPaisa, 190200);
+      expect(insights.dailyBurnRoundedPaisa % 100, 0);
+    });
+
     test('runway divides balance by burn', () {
       final insights = build([
         tx(amount: 30000, isExpense: false, date: DateTime(2026, 1, 1)),
@@ -297,6 +313,34 @@ void main() {
       expect(insights.stance, CoachStance.watchful);
     });
 
+    test('does not celebrate lower spending in a month with no entries', () {
+      // Early in a month an empty ledger looks like a huge drop; congratulating
+      // that is worse than saying nothing.
+      final insights = build([
+        tx(amount: 5000, isExpense: true, date: lastMonth),
+        tx(amount: 20000, isExpense: false, date: lastMonth),
+      ]);
+
+      expect(insights.thisMonth.hasActivity, isFalse);
+      expect(
+        insights.wins.any((win) => win.contains('Spending is down')),
+        isFalse,
+      );
+    });
+
+    test('does celebrate lower spending once the month has entries', () {
+      final insights = build([
+        tx(amount: 5000, isExpense: true, date: lastMonth),
+        tx(amount: 20000, isExpense: false, date: lastMonth),
+        tx(amount: 1000, isExpense: true, date: thisMonth),
+      ]);
+
+      expect(
+        insights.wins.any((win) => win.contains('Spending is down')),
+        isTrue,
+      );
+    });
+
     test('is watchful when a large category spikes', () {
       final insights = build([
         tx(amount: 10000, isExpense: false, date: thisMonth),
@@ -349,6 +393,19 @@ void main() {
       ]);
 
       expect(insights.headline, contains('Kept'));
+    });
+
+    test('distinguishes an empty month from a balanced one', () {
+      final quietMonth = build([
+        tx(amount: 1000, isExpense: false, date: lastMonth),
+      ]);
+      expect(quietMonth.headline, 'No entries this month');
+
+      final balanced = build([
+        tx(amount: 500, isExpense: false, date: thisMonth),
+        tx(amount: 500, isExpense: true, date: thisMonth),
+      ]);
+      expect(balanced.headline, 'Breaking even this month');
     });
   });
 }

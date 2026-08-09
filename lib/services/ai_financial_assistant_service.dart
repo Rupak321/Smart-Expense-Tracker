@@ -895,7 +895,8 @@ suggest they log a few days of spending or their latest income.
     buffer.writeln();
 
     buffer.writeln(
-      'Pace: ${_money(insights.dailyBurnPaisa)} per day over the last 30 days.',
+      'Pace: ${_money(insights.dailyBurnRoundedPaisa)} per day over the last '
+      '30 days.',
     );
     final projected = insights.projectedMonthEndExpensePaisa;
     if (projected != null) {

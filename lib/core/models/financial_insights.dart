@@ -175,6 +175,12 @@ class FinancialInsights {
   /// Average spend per day over the last 30 days.
   int get dailyBurnPaisa => (last30DaysExpensePaisa / 30).round();
 
+  /// Same figure snapped to whole rupees.
+  ///
+  /// An average carries false precision — "Rs. 1,901.67 a day" reads like a
+  /// measurement rather than an estimate — so anything user-facing uses this.
+  int get dailyBurnRoundedPaisa => (dailyBurnPaisa / 100).round() * 100;
+
   /// How many days the current balance lasts at the current burn rate.
   /// Null when nothing is being spent or the balance is already negative.
   int? get runwayDays {
@@ -204,6 +210,9 @@ class FinancialInsights {
   /// One-line status for the chat header.
   String get headline {
     if (!hasData) return 'No transactions yet';
+    // "Breaking even" would imply activity that cancelled out, which is a
+    // different thing from a month with nothing recorded in it.
+    if (!thisMonth.hasActivity) return 'No entries this month';
     final net = thisMonth.netPaisa;
     if (thisMonth.isOverspending) {
       return 'Over by ${MoneyUtils.formatCompactPaisa(net.abs())} this month';

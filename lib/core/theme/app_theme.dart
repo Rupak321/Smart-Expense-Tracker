@@ -80,7 +80,7 @@ extension AppColorRoles on ColorScheme {
   static const List<Color> chartPalette = [
     Color(0xFFE76F51), // warm orange
     Color(0xFF4EA8DE), // blue
-    Color(0xFFE9C46A), // amber
+    Color(0xFFD4A017), // gold (deeper than amber so it holds up on white)
     Color(0xFF2A9D8F), // teal
     Color(0xFFEF476F), // pink red
     Color(0xFF9B5DE5), // purple

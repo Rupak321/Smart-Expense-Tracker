@@ -75,6 +75,19 @@ Everything except the assistant's replies works without a key: transactions,
 analytics, reminders, and the locally computed month briefing on the assistant
 screen are all plain Dart over your own data.
 
+### PDF reports and non-Latin text
+
+Exported PDFs use the standard built-in PDF fonts, which cover Latin-1 only.
+Typographic characters (em dashes, bullets, curly quotes, `₹`) are converted to
+plain ASCII automatically, but Devanagari, other non-Latin scripts and emoji
+cannot be drawn and are replaced with `(unsupported)` rather than rendered as
+empty boxes.
+
+If transaction titles need to appear in Nepali in the PDF, bundle a Unicode
+font (Noto Sans Devanagari is OFL-licensed) as an asset and load it via
+`pw.Font.ttf()` in `lib/services/report_pdf_builder.dart`. The on-screen report
+already renders every script correctly — this affects the PDF export only.
+
 ### Models
 
 Groq retires models periodically, and a retired model returns an error rather

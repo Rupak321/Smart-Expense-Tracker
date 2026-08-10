@@ -327,6 +327,13 @@ JSON shape:
       throw Exception('The AI service took too long to answer. Try again.');
     } on SocketException {
       throw Exception('No internet connection reached the AI service.');
+    } on http.ClientException catch (error) {
+      // http wraps socket failures, so a dropped connection arrives here as a
+      // ClientException rather than a SocketException.
+      if (_looksLikeNetworkFailure(error.message)) {
+        throw Exception('No internet connection reached the AI service.');
+      }
+      rethrow;
     }
 
     final data = jsonDecode(response.body);
@@ -991,6 +998,19 @@ suggest they log a few days of spending or their latest income.
     );
 
     return buffer.toString();
+  }
+
+  /// Recognises the wording the platform uses for a dropped connection.
+  static bool _looksLikeNetworkFailure(String message) {
+    const markers = [
+      'Failed host lookup',
+      'SocketException',
+      'SocketFailed',
+      'No address associated',
+      'Connection refused',
+      'Network is unreachable',
+    ];
+    return markers.any(message.contains);
   }
 
   /// Turns an API failure into something the user can act on.

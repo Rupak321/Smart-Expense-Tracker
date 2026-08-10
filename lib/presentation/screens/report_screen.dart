@@ -79,6 +79,16 @@ class _ReportScreenState extends State<ReportScreen> {
       return 'The AI service took too long to write it. Everything above is '
           'already complete — tap below to try the analysis again.';
     }
+    // package:http wraps socket failures in ClientException, so this is what a
+    // dropped connection actually looks like rather than a SocketException.
+    if (text.contains('Failed host lookup') ||
+        text.contains('SocketException') ||
+        text.contains('SocketFailed') ||
+        text.contains('No address associated')) {
+      return 'No internet connection, so the analysis could not be written. '
+          'Everything above is calculated from your own records and is '
+          'already complete.';
+    }
     return text.replaceFirst('Exception: ', '');
   }
 
@@ -109,15 +119,25 @@ class _ReportScreenState extends State<ReportScreen> {
     final report = _report;
     if (report == null || _isExporting) return;
 
+    // Exporting mid-fetch produces a PDF with no Analysis section. Silently
+    // handing over an incomplete document is worse than saying so.
+    final missingAnalysis = _narrativeState == _NarrativeState.loading;
+
     setState(() => _isExporting = true);
     try {
       if (share) {
         await FinancialReportService.sharePdf(report);
+        if (mounted && missingAnalysis) {
+          _snack('Shared. The written analysis was still loading, so it is '
+              'not in this PDF.');
+        }
       } else {
         final file = await FinancialReportService.generatePdf(report);
         if (!mounted) return;
         _snack(
-          'Saved ${file.path.split(Platform.pathSeparator).last}',
+          missingAnalysis
+              ? 'Saved without the analysis — it was still loading.'
+              : 'Saved ${file.path.split(Platform.pathSeparator).last}',
           action: SnackBarAction(
             label: 'Share',
             onPressed: () => FinancialReportService.sharePdf(report),

@@ -65,7 +65,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     categories: categories,
                     usage: usage,
                     onEdit: _editCategory,
-                    onTidyUp: () => _tidyUp(categories),
+                    onTidyUp: () => _tidyUp(categories, usage),
                   );
                 },
               );
@@ -221,8 +221,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     }
   }
 
-  Future<void> _tidyUp(List<ExpenseCategory> categories) async {
-    final suggestions = CategoryService.findDuplicates(categories);
+  Future<void> _tidyUp(
+    List<ExpenseCategory> categories,
+    Map<String, CategoryUsage> usage,
+  ) async {
+    final suggestions = CategoryService.findDuplicates(
+      categories,
+      usage: usage,
+    );
     if (suggestions.isEmpty) {
       _snack('No duplicates found.');
       return;
@@ -315,7 +321,10 @@ class _CategoryList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final duplicates = CategoryService.findDuplicates(categories);
+    final duplicates = CategoryService.findDuplicates(
+      categories,
+      usage: usage,
+    );
     final expense = categories
         .where((c) => c.kind != CategoryKind.income)
         .toList();

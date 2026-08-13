@@ -102,6 +102,25 @@ class AuthService {
     }
   }
 
+  /// Sends a reset link. Returns null on success, or a message to show.
+  ///
+  /// Deliberately reports success even when no account exists, so the screen
+  /// cannot be used to discover which email addresses are registered.
+  static Future<String?> sendPasswordReset(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        return null;
+      }
+      return _messageFromException(e);
+    } catch (e) {
+      debugPrint('Password reset failed: $e');
+      return 'Unable to send the reset email right now.';
+    }
+  }
+
   static Future<void> logout() async {
     await _googleSignIn.signOut();
     await _auth.signOut();

@@ -250,21 +250,29 @@ class CategoryService {
   ///
   /// Uses the same matcher the entry paths use, so what it flags is exactly
   /// what would have been folded together had the rules existed earlier.
+  ///
+  /// [usage] decides which side survives when neither is a seeded category.
   static List<DuplicateSuggestion> findDuplicates(
-    List<ExpenseCategory> categories,
-  ) {
+    List<ExpenseCategory> categories, {
+    Map<String, CategoryUsage> usage = const {},
+  }) {
     final suggestions = <DuplicateSuggestion>[];
-    final claimed = <String>{};
+
+    // Only the disappearing side is locked. Locking the surviving side too
+    // meant that once "Food - Miscellaneous" claimed "Food & Dining", a second
+    // duplicate like "Food - Restaurant" could no longer fold into it and was
+    // silently left behind.
+    final absorbed = <String>{};
 
     for (final candidate in categories) {
-      if (candidate.isFallback || claimed.contains(candidate.id)) continue;
+      if (candidate.isFallback || absorbed.contains(candidate.id)) continue;
 
       final others = categories
           .where(
             (other) =>
                 other.id != candidate.id &&
                 !other.isFallback &&
-                !claimed.contains(other.id),
+                !absorbed.contains(other.id),
           )
           .toList();
       if (others.isEmpty) continue;
@@ -278,15 +286,49 @@ class CategoryService {
       final target = match.category;
       if (target == null || match.isNew) continue;
 
-      claimed
-        ..add(candidate.id)
-        ..add(target.id);
+      final ordered = _orderMerge(candidate, target, usage);
+      if (absorbed.contains(ordered.from.id)) continue;
+
+      absorbed.add(ordered.from.id);
       suggestions.add(
-        DuplicateSuggestion(from: candidate, into: target, reason: match.reason),
+        DuplicateSuggestion(
+          from: ordered.from,
+          into: ordered.into,
+          reason: match.reason,
+        ),
       );
     }
 
     return suggestions;
+  }
+
+  /// Decides which of two duplicates survives.
+  ///
+  /// Without this the direction came from list order, which proposed folding
+  /// the tidy seeded "Shopping" into the improvised "Shopping - Clothes" —
+  /// exactly backwards.
+  static ({ExpenseCategory from, ExpenseCategory into}) _orderMerge(
+    ExpenseCategory a,
+    ExpenseCategory b,
+    Map<String, CategoryUsage> usage,
+  ) {
+    // A seeded category is the canonical name; keep it.
+    if (a.isSystem != b.isSystem) {
+      return a.isSystem ? (from: b, into: a) : (from: a, into: b);
+    }
+
+    // Otherwise keep whichever is actually being used, so the merge moves the
+    // fewest transactions.
+    final usedA = usage[a.name]?.count ?? 0;
+    final usedB = usage[b.name]?.count ?? 0;
+    if (usedA != usedB) {
+      return usedA > usedB ? (from: b, into: a) : (from: a, into: b);
+    }
+
+    // Last resort: the shorter name is usually the cleaner one.
+    return a.name.length <= b.name.length
+        ? (from: b, into: a)
+        : (from: a, into: b);
   }
 }
 

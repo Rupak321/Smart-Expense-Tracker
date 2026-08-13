@@ -53,3 +53,4 @@ dart_defines.json
 dart_defines.*.json
 .env
 .env.*
+release-assets/

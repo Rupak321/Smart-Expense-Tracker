@@ -5,12 +5,15 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../core/categories/category_matcher.dart';
 import '../core/models/ai_chat_message.dart';
 import '../core/models/expense_model.dart';
+import '../core/models/expense_category.dart';
 import '../core/models/financial_insights.dart';
 import '../core/models/financial_record_action.dart';
 import '../core/secrets.dart';
 import '../core/utils/money_utils.dart';
+import 'category_service.dart';
 import 'financial_insights_service.dart';
 import 'user_data_service.dart';
 import 'user_settings_service.dart';
@@ -167,6 +170,11 @@ Rules:
 - Do not treat advice questions as actions.
 - For update/delete, choose targetId from the provided transactions if possible.
 - If target is unclear, return actionType "clarify" with a short clarification.
+- "category" MUST reuse one of the availableCategories names exactly when any
+  of them fits, even loosely. Only invent a new category name when none of them
+  could reasonably hold this transaction.
+- Never invent a variant of a category that already exists (no "Food - Snacks"
+  when "Food & Dining" is available).
 - "note" or "description" maps to title.
 - type must be "expense" or "income".
 - Dates must be ISO yyyy-mm-dd. If user omits date for add, use null.
@@ -241,6 +249,17 @@ JSON shape:
   static Future<String> executeFinancialAction(
     FinancialRecordAction action,
   ) async {
+    // The user approved this in the confirmation, so the category is created
+    // before the transaction that needs it.
+    if (action.createsCategory) {
+      await CategoryService.create(
+        name: action.newCategoryName!,
+        kind: action.newCategoryIsExpense
+            ? CategoryKind.expense
+            : CategoryKind.income,
+      );
+    }
+
     switch (action.type) {
       case FinancialActionType.add:
         final next = action.newRecord;
@@ -420,13 +439,49 @@ JSON shape:
       );
     }
 
+    // Whatever the model called the category, resolve it against the user's
+    // own vocabulary. The instruction to reuse an existing name is a request;
+    // this is the guarantee.
+    final resolution = await resolveCategory(
+      rawName: merged.category,
+      isExpense: merged.isExpense,
+    );
+
     return FinancialActionParseResult(
       action: FinancialRecordAction(
         type: type,
         oldRecord: existing,
-        newRecord: merged,
+        newRecord: ExpenseModel(
+          id: merged.id,
+          title: merged.title,
+          amount: merged.amount,
+          category: resolution.resolvedName,
+          date: merged.date,
+          isExpense: merged.isExpense,
+        ),
         targetId: targetId,
+        newCategoryName: resolution.isNew ? resolution.resolvedName : null,
+        newCategoryIsExpense: merged.isExpense,
       ),
+    );
+  }
+
+  /// Resolves a free-text category name against the user's saved categories.
+  ///
+  /// Shared by the assistant and the quick-add box so both obey the same
+  /// vocabulary.
+  static Future<CategoryMatch> resolveCategory({
+    required String rawName,
+    required bool isExpense,
+  }) async {
+    var categories = await CategoryService.getOnce();
+    if (categories.isEmpty) {
+      categories = await CategoryService.ensureSeeded();
+    }
+    return CategoryMatcher.match(
+      rawName: rawName,
+      categories: categories,
+      isExpense: isExpense,
     );
   }
 
@@ -586,10 +641,16 @@ JSON shape:
       return {'role': message.role, 'content': message.content};
     }).toList();
 
+    final categories = await CategoryService.getOnce();
+
     return jsonEncode({
       'latestUserMessage': question,
       'recentChat': recentChat,
       'transactions': recent,
+      'availableCategories': [
+        for (final category in categories)
+          {'name': category.name, 'usedFor': category.kind.name},
+      ],
       'today': DateTime.now().toIso8601String().split('T').first,
     });
   }

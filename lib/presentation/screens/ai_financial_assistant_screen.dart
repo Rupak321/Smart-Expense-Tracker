@@ -6,6 +6,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/models/ai_chat_message.dart';
+import '../../../core/models/expense_category.dart';
 import '../../../core/models/expense_model.dart';
 import '../../../core/models/financial_insights.dart';
 import '../../../core/models/financial_record_action.dart';
@@ -13,6 +14,7 @@ import '../../../core/parser/transaction_parser_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/ai_financial_assistant_service.dart';
+import '../../../services/category_service.dart';
 import '../../../services/financial_insights_service.dart';
 import '../../../services/user_data_service.dart';
 import '../../../services/user_settings_service.dart';
@@ -225,22 +227,36 @@ class _AiFinancialAssistantScreenState
           parsed.amount > 0 &&
           parsed.confidence >= 0.85 &&
           mounted) {
+        final isExpense = parsed.type == TransactionType.expense;
+        // Route the rule-based guess through the same vocabulary the
+        // assistant uses, so both paths agree on category names.
+        final resolution = await AiFinancialAssistantService.resolveCategory(
+          rawName: parsed.category,
+          isExpense: isExpense,
+        );
         final proposal = ExpenseModel(
           id: const Uuid().v4(),
           title: parsed.title,
           amount: parsed.amount,
-          category: parsed.category,
+          category: resolution.resolvedName,
           date: DateTime.now(),
-          isExpense: parsed.type == TransactionType.expense,
+          isExpense: isExpense,
         );
-        final confirmed = await _confirmFinancialAction(
-          FinancialRecordAction(
-            type: FinancialActionType.add,
-            newRecord: proposal,
-          ),
+        final action = FinancialRecordAction(
+          type: FinancialActionType.add,
+          newRecord: proposal,
+          newCategoryName: resolution.isNew ? resolution.resolvedName : null,
+          newCategoryIsExpense: isExpense,
         );
+        final confirmed = await _confirmFinancialAction(action);
 
         if (confirmed) {
+          if (action.createsCategory) {
+            await CategoryService.create(
+              name: action.newCategoryName!,
+              kind: isExpense ? CategoryKind.expense : CategoryKind.income,
+            );
+          }
           await UserDataService.addTransaction(proposal);
           await _reply(
             session.id,
@@ -805,6 +821,10 @@ class _FinancialActionDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (action.createsCategory) ...[
+              _NewCategoryNotice(name: action.newCategoryName!),
+              const SizedBox(height: AppTokens.gapMd),
+            ],
             if (action.type == FinancialActionType.add &&
                 action.newRecord != null)
               _RecordDetails(record: action.newRecord!),
@@ -1579,6 +1599,45 @@ class _TypingBubble extends StatelessWidget {
           width: 46,
           child: LinearProgressIndicator(minHeight: 3),
         ),
+      ),
+    );
+  }
+}
+
+/// Flags that confirming will also add a category the user does not have.
+class _NewCategoryNotice extends StatelessWidget {
+  final String name;
+
+  const _NewCategoryNotice({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(AppTokens.gapMd),
+      decoration: BoxDecoration(
+        color: colorScheme.appWarning.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+        border: Border.all(color: colorScheme.appWarning.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.new_label_rounded, size: 16, color: colorScheme.appWarning),
+          const SizedBox(width: AppTokens.gapSm),
+          Expanded(
+            child: Text(
+              'Creates a new category: $name',
+              style: TextStyle(
+                color: colorScheme.onSurface,
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

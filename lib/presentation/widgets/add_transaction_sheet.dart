@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import '../../core/categories/category_icons.dart';
+import '../../core/models/expense_category.dart';
 import '../../core/models/expense_model.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/money_utils.dart';
+import '../../services/category_service.dart';
 import '../../services/user_data_service.dart';
 
 class AddTransactionSheet extends StatefulWidget {
-  const AddTransactionSheet({super.key});
+  /// Supplies the category list instead of loading it.
+  ///
+  /// Only used by tests and previews; in the app it is null and the sheet
+  /// reads the user's own vocabulary.
+  final List<ExpenseCategory>? categoriesOverride;
+
+  const AddTransactionSheet({super.key, this.categoriesOverride});
 
   @override
   State<AddTransactionSheet> createState() => _AddTransactionSheetState();
@@ -17,26 +26,46 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
 
-  String _selectedCategory = 'Food';
+  String? _selectedCategory;
   bool _isExpense = true; // Toggle state: true = Expense, false = Income
   bool _isSaving = false;
 
-  static const List<String> _expenseCategories = [
-    'Food',
-    'Travel',
-    'Shopping',
-    'Bills',
-    'Other',
-  ];
+  /// The user's own vocabulary, loaded once when the sheet opens.
+  List<ExpenseCategory> _categories = const [];
+  bool _loadingCategories = true;
 
-  static const List<String> _incomeCategories = [
-    'Salary',
-    'Freelance',
-    'Business',
-    'Investments',
-    'Gifts',
-    'Other',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final override = widget.categoriesOverride;
+    if (override != null) {
+      setState(() {
+        _categories = override;
+        _loadingCategories = false;
+        _selectedCategory ??= _visibleCategories().firstOrNull?.name;
+      });
+      return;
+    }
+
+    final categories = await CategoryService.ensureSeeded();
+    if (!mounted) return;
+    setState(() {
+      _categories = categories;
+      _loadingCategories = false;
+      _selectedCategory ??= _visibleCategories().firstOrNull?.name;
+    });
+  }
+
+  /// Categories usable for the current direction.
+  List<ExpenseCategory> _visibleCategories() {
+    return _categories
+        .where((category) => category.kind.allows(isExpense: _isExpense))
+        .toList();
+  }
 
   @override
   void dispose() {
@@ -60,7 +89,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
         id: const Uuid().v4(), // Generates a unique secure ID string
         title: title,
         amount: MoneyUtils.paisaToAmount(amountInPaisa),
-        category: _selectedCategory,
+        category: _selectedCategory ?? ExpenseCategory.fallbackName,
         date: DateTime.now(),
         isExpense: _isExpense,
       );
@@ -84,7 +113,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final categories = _isExpense ? _expenseCategories : _incomeCategories;
+    final categories = _visibleCategories();
 
     return Padding(
       padding: EdgeInsets.only(
@@ -201,16 +230,22 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
               ),
               const SizedBox(height: 16),
 
-              _CategoryPicker(
-                categories: categories,
-                selectedCategory: _selectedCategory,
-                iconForCategory: _categoryIcon,
-                onChanged: (category) {
-                  if (category != _selectedCategory) {
-                    setState(() => _selectedCategory = category);
-                  }
-                },
-              ),
+              if (_loadingCategories)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppTokens.gapXl),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else
+                _CategoryPicker(
+                  categories: categories,
+                  selectedCategory: _selectedCategory,
+                  onChanged: (category) {
+                    if (category != _selectedCategory) {
+                      setState(() => _selectedCategory = category);
+                    }
+                  },
+                  onCreate: _createCategory,
+                ),
               const SizedBox(height: 24),
 
               // Submit Save Action Button Component
@@ -239,76 +274,111 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
     );
   }
 
+  /// Lets the user add a category without leaving the sheet.
+  Future<void> _createCategory() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New category'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(labelText: 'Name'),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty) return;
+
+    final created = await CategoryService.create(
+      name: name,
+      kind: _isExpense ? CategoryKind.expense : CategoryKind.income,
+    );
+    final refreshed = await CategoryService.getOnce();
+    if (!mounted) return;
+    setState(() {
+      _categories = refreshed;
+      _selectedCategory = created.name;
+    });
+  }
+
   void _setTransactionType({required bool isExpense}) {
     if (_isExpense == isExpense) {
       return;
     }
 
-    final nextCategories = isExpense ? _expenseCategories : _incomeCategories;
     setState(() {
       _isExpense = isExpense;
-      _selectedCategory = nextCategories.first;
+      // The previous pick may not be valid for the new direction.
+      final usable = _visibleCategories();
+      final stillValid = usable.any((c) => c.name == _selectedCategory);
+      if (!stillValid) {
+        _selectedCategory = usable.firstOrNull?.name;
+      }
     });
   }
 
-  IconData _categoryIcon(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant_rounded;
-      case 'Travel':
-        return Icons.flight_takeoff_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Bills':
-        return Icons.receipt_long_rounded;
-      case 'Salary':
-        return Icons.monetization_on_rounded;
-      case 'Freelance':
-        return Icons.laptop_mac_rounded;
-      case 'Business':
-        return Icons.storefront_rounded;
-      case 'Investments':
-        return Icons.trending_up_rounded;
-      case 'Gifts':
-        return Icons.card_giftcard_rounded;
-      default:
-        return Icons.receipt_long_rounded;
-    }
-  }
 }
 
 class _CategoryPicker extends StatelessWidget {
-  final List<String> categories;
-  final String selectedCategory;
-  final IconData Function(String category) iconForCategory;
+  final List<ExpenseCategory> categories;
+  final String? selectedCategory;
   final ValueChanged<String> onChanged;
+  final VoidCallback onCreate;
 
   const _CategoryPicker({
     required this.categories,
     required this.selectedCategory,
-    required this.iconForCategory,
     required this.onChanged,
+    required this.onCreate,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 8),
-            child: Text(
-            'Category',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
+          padding: const EdgeInsets.only(left: 2, bottom: AppTokens.gapSm),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Category',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onCreate,
+                icon: const Icon(Icons.add_rounded, size: 16),
+                label: const Text('New'),
+              ),
+            ],
           ),
         ),
         LayoutBuilder(
           builder: (context, constraints) {
-            const spacing = 8.0;
+            const spacing = AppTokens.gapSm;
             final tileWidth = (constraints.maxWidth - spacing) / 2;
 
             return Wrap(
@@ -320,10 +390,10 @@ class _CategoryPicker extends StatelessWidget {
                     width: tileWidth,
                     height: 48,
                     child: _CategoryTile(
-                      label: category,
-                      icon: iconForCategory(category),
-                      selected: category == selectedCategory,
-                      onTap: () => onChanged(category),
+                      label: category.name,
+                      icon: CategoryIcons.resolve(category.iconKey),
+                      selected: category.name == selectedCategory,
+                      onTap: () => onChanged(category.name),
                     ),
                   ),
               ],
@@ -367,10 +437,8 @@ class _CategoryTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        splashColor: colorScheme.primary.withValues(alpha: 0.10),
-        highlightColor: colorScheme.primary.withValues(alpha: 0.06),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: AppTokens.gapMd),
           child: Row(
             children: [
               Icon(icon, size: 20, color: color),
@@ -382,7 +450,7 @@ class _CategoryTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: selected ? colorScheme.onSurface : color,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),

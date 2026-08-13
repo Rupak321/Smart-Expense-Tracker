@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smartexpense/core/models/expense_category.dart';
 import 'package:smartexpense/core/theme/app_theme.dart';
 import 'package:smartexpense/presentation/screens/main_navigation.dart';
 import 'package:smartexpense/presentation/widgets/add_transaction_sheet.dart';
@@ -52,9 +53,13 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light(),
-          home: const MediaQuery(
-            data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
-            child: Scaffold(body: AddTransactionSheet()),
+          home: MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
+            child: Scaffold(
+              body: AddTransactionSheet(
+                categoriesOverride: ExpenseCategory.defaults(DateTime(2026)),
+              ),
+            ),
           ),
         ),
       );
@@ -72,14 +77,14 @@ void main() {
     testWidgets('swapping to Income swaps the category list', (tester) async {
       await pumpSheet(tester);
 
-      expect(find.text('Food'), findsOneWidget);
+      expect(find.text('Food & Dining'), findsOneWidget);
       expect(find.text('Salary'), findsNothing);
 
       await tester.tap(find.text('Income'));
       await tester.pumpAndSettle();
 
       expect(find.text('Salary'), findsOneWidget);
-      expect(find.text('Food'), findsNothing);
+      expect(find.text('Food & Dining'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
@@ -87,6 +92,9 @@ void main() {
       await pumpSheet(tester);
 
       await tester.enterText(find.byType(TextFormField).first, 'Lunch');
+      // The default vocabulary is long enough to push the button off-screen.
+      await tester.ensureVisible(find.text('Save Transaction'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Save Transaction'));
       await tester.pumpAndSettle();
 

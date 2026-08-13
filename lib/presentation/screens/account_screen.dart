@@ -10,6 +10,7 @@ import '../../../core/theme/app_theme_controller.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_data_service.dart';
 import 'bill_reminder_screen.dart';
+import 'categories_screen.dart';
 import 'main_navigation.dart';
 import 'personal_details_screen.dart';
 
@@ -83,6 +84,17 @@ class _AccountScreenState extends State<AccountScreen> {
                       onTap: _showAppearancePicker,
                     );
                   },
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.label_rounded,
+                  title: 'Categories',
+                  subtitle: 'Rename, merge, and tidy up duplicates',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const CategoriesScreen(),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: AppTokens.gapSm),
                 _SettingsTile(

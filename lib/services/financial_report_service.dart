@@ -64,6 +64,9 @@ class FinancialReportService {
     final expenses = inWindow.where((tx) => tx.isExpense).toList();
 
     final incomePaisa = income.fold(0, (sum, tx) => sum + tx.amountPaisa);
+    final windfallPaisa = income
+        .where((tx) => tx.isWindfall)
+        .fold(0, (sum, tx) => sum + tx.amountPaisa);
     final expensePaisa = expenses.fold(0, (sum, tx) => sum + tx.amountPaisa);
 
     // Previous equally long window, for the comparison line.
@@ -149,6 +152,7 @@ class FinancialReportService {
       expensePaisa: expensePaisa,
       incomeCount: income.length,
       expenseCount: expenses.length,
+      windfallIncomePaisa: windfallPaisa,
       categories: categories,
       months: months,
       topExpenses: sortedExpenses.take(10).toList(),
@@ -173,6 +177,7 @@ class FinancialReportService {
       topIncome: report.topIncome,
       previousExpensePaisa: report.previousExpensePaisa,
       previousIncomePaisa: report.previousIncomePaisa,
+      windfallIncomePaisa: report.windfallIncomePaisa,
       observations: _buildObservations(report),
       narrative: null,
     );

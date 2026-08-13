@@ -15,14 +15,16 @@ ExpenseModel tx({
   DateTime? date,
   String category = 'Other',
   String title = 'Item',
+  bool isWindfall = false,
 }) {
   return ExpenseModel(
-    id: '$title-$amount-${date ?? thisMonth}',
+    id: '$title-$amount-${date ?? thisMonth}-$isWindfall',
     title: title,
     amount: amount,
     category: category,
     date: date ?? thisMonth,
     isExpense: isExpense,
+    isWindfall: isWindfall,
   );
 }
 
@@ -406,6 +408,68 @@ void main() {
         tx(amount: 500, isExpense: true, date: thisMonth),
       ]);
       expect(balanced.headline, 'Breaking even this month');
+    });
+  });
+
+  group('one-off income', () {
+    test('is excluded from the savings rate', () {
+      // The real case: a Rs. 85 lakh land sale alongside a normal salary made
+      // the rate read 99% and skewed every judgement built on it.
+      final insights = build([
+        tx(amount: 50000, isExpense: false, date: thisMonth, title: 'Salary'),
+        tx(
+          amount: 8500000,
+          isExpense: false,
+          date: thisMonth,
+          title: 'Sale of land',
+          isWindfall: true,
+        ),
+        tx(amount: 25000, isExpense: true, date: thisMonth),
+      ]);
+
+      // 50,000 regular income against 25,000 spent.
+      expect(insights.thisMonth.savingsRate, closeTo(0.5, 0.0001));
+      expect(insights.thisMonth.regularIncomePaisa, 5000000);
+      expect(insights.thisMonth.hasWindfall, isTrue);
+    });
+
+    test('still counts towards income, balance and net', () {
+      final insights = build([
+        tx(
+          amount: 1000,
+          isExpense: false,
+          date: thisMonth,
+          isWindfall: true,
+        ),
+      ]);
+
+      expect(insights.totalIncomePaisa, 100000);
+      expect(insights.balancePaisa, 100000);
+      expect(insights.thisMonth.netPaisa, 100000);
+    });
+
+    test('a month of only one-off income has no meaningful rate', () {
+      final insights = build([
+        tx(
+          amount: 1000,
+          isExpense: false,
+          date: thisMonth,
+          isWindfall: true,
+        ),
+        tx(amount: 200, isExpense: true, date: thisMonth),
+      ]);
+
+      expect(insights.thisMonth.savingsRate, isNull);
+    });
+
+    test('ordinary income is unaffected', () {
+      final insights = build([
+        tx(amount: 1000, isExpense: false, date: thisMonth),
+        tx(amount: 250, isExpense: true, date: thisMonth),
+      ]);
+
+      expect(insights.thisMonth.hasWindfall, isFalse);
+      expect(insights.thisMonth.savingsRate, closeTo(0.75, 0.0001));
     });
   });
 }

@@ -151,7 +151,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               '$sign ${MoneyUtils.formatAmount(transaction.amount)}',
                           isExpense: transaction.isExpense,
                           icon: _iconForCategory(transaction.category),
-                          onTap: () => _confirmDelete(transaction),
+                          onTap: () => _showTransactionActions(transaction),
                         ),
                       );
                     },
@@ -333,6 +333,111 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       );
+  }
+
+  /// Actions for an existing transaction.
+  ///
+  /// Tapping a row used to jump straight to a delete prompt, which left no way
+  /// to mark an already-recorded one-off such as an asset sale.
+  Future<void> _showTransactionActions(ExpenseModel transaction) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final colorScheme = Theme.of(sheetContext).colorScheme;
+        return SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppTokens.gapXl,
+                  0,
+                  AppTokens.gapXl,
+                  AppTokens.gapSm,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      transaction.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(sheetContext).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${transaction.category} · '
+                      '${MoneyUtils.formatAmount(transaction.amount)}',
+                      style: TextStyle(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!transaction.isExpense)
+                ListTile(
+                  onTap: () => Navigator.pop(sheetContext, 'windfall'),
+                  leading: Icon(
+                    transaction.isWindfall
+                        ? Icons.repeat_rounded
+                        : Icons.bolt_rounded,
+                    color: colorScheme.primary,
+                  ),
+                  title: Text(
+                    transaction.isWindfall
+                        ? 'Treat as regular income'
+                        : 'Mark as one-off income',
+                  ),
+                  subtitle: Text(
+                    transaction.isWindfall
+                        ? 'Counts towards savings rate again'
+                        : 'Keeps it out of savings rate and averages',
+                  ),
+                ),
+              ListTile(
+                onTap: () => Navigator.pop(sheetContext, 'delete'),
+                leading: Icon(
+                  Icons.delete_outline_rounded,
+                  color: colorScheme.error,
+                ),
+                title: Text(
+                  'Delete',
+                  style: TextStyle(color: colorScheme.error),
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapSm),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'windfall') {
+      await UserDataService.updateTransaction(
+        transaction.id,
+        transaction.copyWith(isWindfall: !transaction.isWindfall),
+      );
+      if (mounted) {
+        _showSnack(
+          transaction.isWindfall
+              ? 'Counted as regular income again'
+              : 'Marked as one-off income',
+          icon: Icons.check_circle_rounded,
+        );
+      }
+      return;
+    }
+
+    if (action == 'delete') {
+      await _confirmDelete(transaction);
+    }
   }
 
   Future<bool> _confirmDelete(ExpenseModel transaction) async {

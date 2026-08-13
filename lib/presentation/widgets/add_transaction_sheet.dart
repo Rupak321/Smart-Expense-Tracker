@@ -29,6 +29,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
   String? _selectedCategory;
   bool _isExpense = true; // Toggle state: true = Expense, false = Income
   bool _isSaving = false;
+  bool _isWindfall = false;
 
   /// The user's own vocabulary, loaded once when the sheet opens.
   List<ExpenseCategory> _categories = const [];
@@ -92,6 +93,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
         category: _selectedCategory ?? ExpenseCategory.fallbackName,
         date: DateTime.now(),
         isExpense: _isExpense,
+        isWindfall: !_isExpense && _isWindfall,
       );
 
       try {
@@ -246,6 +248,13 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
                   },
                   onCreate: _createCategory,
                 ),
+              if (!_isExpense) ...[
+                const SizedBox(height: AppTokens.gapLg),
+                _WindfallToggle(
+                  value: _isWindfall,
+                  onChanged: (value) => setState(() => _isWindfall = value),
+                ),
+              ],
               const SizedBox(height: 24),
 
               // Submit Save Action Button Component
@@ -464,6 +473,63 @@ class _CategoryTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Marks income that is not part of the usual pattern.
+///
+/// Excluded from savings rate and averages so a one-off asset sale cannot make
+/// a normal month look like a 99% saving month.
+class _WindfallToggle extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _WindfallToggle({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.gapMd,
+        vertical: AppTokens.gapSm,
+      ),
+      decoration: BoxDecoration(
+        color: colorScheme.appCardMuted,
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'One-off income',
+                  style: TextStyle(
+                    color: colorScheme.onSurface,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Kept out of savings rate and averages',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
+        ],
       ),
     );
   }

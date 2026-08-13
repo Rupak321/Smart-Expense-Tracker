@@ -147,6 +147,7 @@ class FinancialInsightsService {
     var income = 0;
     var expense = 0;
     var count = 0;
+    var windfall = 0;
 
     for (final transaction in transactions) {
       if (!_isInMonth(transaction.date, monthStart)) continue;
@@ -155,6 +156,11 @@ class FinancialInsightsService {
         expense += transaction.amountPaisa;
       } else {
         income += transaction.amountPaisa;
+        // Tracked separately so the savings rate describes a typical month
+        // rather than being dominated by a one-off.
+        if (transaction.isWindfall) {
+          windfall += transaction.amountPaisa;
+        }
       }
     }
 
@@ -163,6 +169,7 @@ class FinancialInsightsService {
       incomePaisa: income,
       expensePaisa: expense,
       transactionCount: count,
+      windfallIncomePaisa: windfall,
     );
   }
 

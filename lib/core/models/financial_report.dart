@@ -159,6 +159,9 @@ class FinancialReport {
   final int incomeCount;
   final int expenseCount;
 
+  /// Portion of [incomePaisa] flagged as one-off.
+  final int windfallIncomePaisa;
+
   final List<ReportCategory> categories;
   final List<ReportMonth> months;
   final List<ExpenseModel> topExpenses;
@@ -189,6 +192,7 @@ class FinancialReport {
     required this.previousExpensePaisa,
     required this.previousIncomePaisa,
     required this.observations,
+    this.windfallIncomePaisa = 0,
     this.narrative,
   });
 
@@ -209,6 +213,7 @@ class FinancialReport {
       previousExpensePaisa: previousExpensePaisa,
       previousIncomePaisa: previousIncomePaisa,
       observations: observations,
+      windfallIncomePaisa: windfallIncomePaisa,
       narrative: narrative ?? this.narrative,
     );
   }
@@ -219,10 +224,20 @@ class FinancialReport {
 
   int get netPaisa => incomePaisa - expensePaisa;
 
-  /// Share of income kept. Null when there is no income to measure against.
+  /// Income excluding one-offs, i.e. what actually repeats.
+  int get regularIncomePaisa => incomePaisa - windfallIncomePaisa;
+
+  bool get hasWindfall => windfallIncomePaisa > 0;
+
+  /// Share of income kept. Null when there is no recurring income to measure
+  /// against.
+  ///
+  /// One-off income is excluded so a single asset sale cannot report a 99%
+  /// savings rate that misrepresents a normal month.
   double? get savingsRate {
-    if (incomePaisa <= 0) return null;
-    return netPaisa / incomePaisa;
+    final base = regularIncomePaisa;
+    if (base <= 0) return null;
+    return (base - expensePaisa) / base;
   }
 
   /// Spending change vs the previous equally long window.

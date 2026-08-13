@@ -55,11 +55,15 @@ class MonthlySnapshot {
   final int expensePaisa;
   final int transactionCount;
 
+  /// Portion of [incomePaisa] flagged as one-off.
+  final int windfallIncomePaisa;
+
   const MonthlySnapshot({
     required this.month,
     required this.incomePaisa,
     required this.expensePaisa,
     required this.transactionCount,
+    this.windfallIncomePaisa = 0,
   });
 
   /// The income-minus-expenditure difference: positive means money kept.
@@ -69,11 +73,20 @@ class MonthlySnapshot {
 
   bool get hasActivity => transactionCount > 0;
 
+  /// Income excluding one-offs, i.e. what actually repeats.
+  int get regularIncomePaisa => incomePaisa - windfallIncomePaisa;
+
+  bool get hasWindfall => windfallIncomePaisa > 0;
+
   /// Share of income kept, e.g. 0.25 for 25%. Null when there is no income to
   /// measure against — a rate is meaningless then.
+  ///
+  /// One-off income is excluded, because a single asset sale would otherwise
+  /// report a 99% savings rate and make every downstream judgement wrong.
   double? get savingsRate {
-    if (incomePaisa <= 0) return null;
-    return netPaisa / incomePaisa;
+    final base = regularIncomePaisa;
+    if (base <= 0) return null;
+    return (base - expensePaisa) / base;
   }
 }
 

@@ -254,18 +254,17 @@ class _NavItem extends StatelessWidget {
       button: true,
       selected: isSelected,
       label: destination.label,
-      child: InkResponse(
+      // GestureDetector rather than InkResponse: no ripple, no splash, no
+      // highlight. The tab switches with no tap animation at all.
+      child: GestureDetector(
         onTap: onTap,
-        radius: 40,
-        containedInkWell: false,
+        behavior: HitTestBehavior.opaque,
         child: SizedBox(
           height: AppTokens.navBarHeight,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AnimatedContainer(
-                duration: AppTokens.motionFast,
-                curve: Curves.easeOut,
+              Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppTokens.gapMd,
                   vertical: 3,

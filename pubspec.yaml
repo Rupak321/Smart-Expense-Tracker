@@ -52,8 +52,9 @@ dependencies:
   cloud_firestore: ^4.0.0
   share_plus: ^10.1.4
   path_provider: ^2.1.2
-  shared_preferences: ^2.1.0
+  shared_preferences: ^2.5.5
   pdf: ^3.10.0
+  local_auth: ^3.0.2
 
 dependency_overrides:
   path_provider_foundation: 2.4.0

@@ -11,6 +11,7 @@ import '../../../core/theme/currency_controller.dart';
 import '../../../core/theme/app_theme_controller.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/account_deletion_service.dart';
+import '../../../services/app_lock_service.dart';
 import '../../../services/data_export_service.dart';
 import '../../../services/user_data_service.dart';
 import 'bill_reminder_screen.dart';
@@ -28,6 +29,27 @@ class AccountScreen extends StatefulWidget {
 
 class _AccountScreenState extends State<AccountScreen> {
   String? _profileImagePath;
+
+  /// Whether this handset can lock at all. Hidden rather than shown disabled,
+  /// since a device with no screen lock cannot act on the setting.
+  bool _lockAvailable = false;
+  String _lockMethod = 'Device PIN or pattern';
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLockSupport();
+  }
+
+  Future<void> _checkLockSupport() async {
+    final available = await AppLockService.isAvailable();
+    final method = await AppLockService.describeAvailable();
+    if (!mounted) return;
+    setState(() {
+      _lockAvailable = available;
+      _lockMethod = method;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +165,18 @@ class _AccountScreenState extends State<AccountScreen> {
                   onTap: _showAboutDialog,
                 ),
                 const SizedBox(height: AppTokens.gapSm),
+                if (_lockAvailable)
+                  _SettingsTile(
+                    icon: AppLockService.isEnabled
+                        ? Icons.lock_rounded
+                        : Icons.lock_open_rounded,
+                    title: 'App lock',
+                    subtitle: AppLockService.isEnabled
+                        ? 'On — $_lockMethod'
+                        : 'Off — anyone with your phone can read this',
+                    onTap: _toggleAppLock,
+                  ),
+                if (_lockAvailable) const SizedBox(height: AppTokens.gapSm),
                 _SettingsTile(
                   icon: Icons.download_rounded,
                   title: 'Export data',
@@ -171,6 +205,22 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _toggleAppLock() async {
+    final turningOn = !AppLockService.isEnabled;
+    final changed = await AppLockService.setEnabled(turningOn);
+    if (!mounted) return;
+
+    if (!changed) {
+      // Only reachable when turning on, since enabling asks the user to pass
+      // the lock once first so a mis-set lock cannot shut them out.
+      _showSettingMessage('App lock not turned on');
+      return;
+    }
+
+    setState(() {});
+    _showSettingMessage(turningOn ? 'App lock is on' : 'App lock is off');
   }
 
   Future<void> _chooseCurrency() async {

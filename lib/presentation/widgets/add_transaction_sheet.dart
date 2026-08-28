@@ -104,13 +104,22 @@ class _AddTransactionSheetState extends State<AddTransactionSheet> {
         .where((category) => category.kind.allows(isExpense: _isExpense))
         .toList();
 
-    // A transaction being edited may sit in a category that does not accept
-    // the current direction. Dropping it from the list would silently clear
-    // the selection, so it stays until the user picks something else.
-    final selected = _selectedCategory;
-    if (selected != null && !visible.any((c) => c.name == selected)) {
-      final match = _categories.where((c) => c.name == selected).firstOrNull;
-      if (match != null) visible.insert(0, match);
+    // A transaction being edited may sit in a category that no longer accepts
+    // its own direction - an older record filed before the vocabulary settled.
+    // Dropping it would silently reassign the transaction on open, so it is
+    // pinned into the list.
+    //
+    // Only the category the transaction arrived with, and only while the
+    // direction is unchanged. Pinning whatever happens to be selected would
+    // make every category look valid for both directions and defeat the reset
+    // in _setTransactionType.
+    final existing = widget.existing;
+    if (existing != null && existing.isExpense == _isExpense) {
+      final pinned = existing.category;
+      if (!visible.any((c) => c.name == pinned)) {
+        final match = _categories.where((c) => c.name == pinned).firstOrNull;
+        if (match != null) visible.insert(0, match);
+      }
     }
     return visible;
   }

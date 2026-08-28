@@ -45,8 +45,12 @@ void main() {
   });
 
   group('AddTransactionSheet', () {
-    Future<void> pumpSheet(WidgetTester tester) async {
-      tester.view.physicalSize = const Size(320, 640) * 3;
+    // 640 is the deliberately cramped case the layout test exercises. Tests
+    // that need to reach the save button take a taller viewport rather than
+    // scrolling: the sheet nests scrollables for the category row, and
+    // ensureVisible does not reliably drive the outer one here.
+    Future<void> pumpSheet(WidgetTester tester, {double height = 640}) async {
+      tester.view.physicalSize = Size(320, height) * 3;
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
 
@@ -89,12 +93,11 @@ void main() {
     });
 
     testWidgets('rejects an empty amount', (tester) async {
-      await pumpSheet(tester);
+      // Tall enough that the button is on screen. The cramped 640 case is
+      // covered by the layout test above; this one is about validation.
+      await pumpSheet(tester, height: 1000);
 
       await tester.enterText(find.byType(TextFormField).first, 'Lunch');
-      // The default vocabulary is long enough to push the button off-screen.
-      await tester.ensureVisible(find.text('Save Transaction'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Save Transaction'));
       await tester.pumpAndSettle();
 

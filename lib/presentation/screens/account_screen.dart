@@ -8,6 +8,8 @@ import '../../../core/models/user_profile_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/app_theme_controller.dart';
 import '../../../services/auth_service.dart';
+import '../../../services/account_deletion_service.dart';
+import '../../../services/data_export_service.dart';
 import '../../../services/user_data_service.dart';
 import 'bill_reminder_screen.dart';
 import 'budgets_screen.dart';
@@ -138,11 +140,26 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
                 const SizedBox(height: AppTokens.gapSm),
                 _SettingsTile(
+                  icon: Icons.download_rounded,
+                  title: 'Export data',
+                  subtitle: 'Your transactions and budgets as CSV',
+                  onTap: _exportData,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
                   icon: Icons.logout_rounded,
                   title: 'Log out',
                   subtitle: 'Sign out of this device',
                   isDestructive: true,
                   onTap: _confirmLogout,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.person_remove_rounded,
+                  title: 'Delete account',
+                  subtitle: 'Erase everything and close this account',
+                  isDestructive: true,
+                  onTap: _confirmDeleteAccount,
                 ),
               ],
             ),
@@ -150,6 +167,109 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _exportData() async {
+    _showSettingMessage('Preparing your export…');
+    try {
+      final count = await DataExportService.exportEverything();
+      if (!mounted) return;
+      if (count == null) {
+        _showSettingMessage('Nothing to export yet');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSettingMessage('Could not build the export');
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Deleting is unrecoverable, so the confirmation says exactly what goes
+    // and offers the export as the way out first.
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'Every transaction, category, budget, bill reminder and assistant '
+          'conversation will be permanently erased, and the account closed. '
+          'This cannot be undone. '
+          'Export your data first if you might want it later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'export'),
+            child: const Text('Export first'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'delete'),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 'export') {
+      await _exportData();
+      return;
+    }
+
+    // A second, typed confirmation. The first dialog can be dismissed by a
+    // stray tap; this one cannot be reached by accident.
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Type DELETE to confirm'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(hintText: 'DELETE'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              controller.text.trim().toUpperCase() == 'DELETE',
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (!mounted || confirmed != true) return;
+
+    _showSettingMessage('Deleting…');
+    final error = await AccountDeletionService.deleteAccount();
+    if (!mounted) return;
+
+    if (error != null) {
+      _showSettingMessage(error);
+    }
   }
 
   Future<void> _openPersonalDetails() async {

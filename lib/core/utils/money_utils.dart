@@ -32,6 +32,21 @@ class MoneyUtils {
     return paisa / 100;
   }
 
+  /// The amount as the user would type it, for prefilling an edit field.
+  ///
+  /// No symbol and no separators, since this value is parsed straight back by
+  /// [parseToPaisa]. Whole rupees drop the ".00" so the field reads "500"
+  /// rather than "500.00".
+  static String editableAmount(double amount) {
+    final paisa = amountToPaisa(amount);
+    final rupees = paisa ~/ 100;
+    final cents = paisa % 100;
+    if (cents == 0) {
+      return rupees.toString();
+    }
+    return '$rupees.${cents.toString().padLeft(2, '0')}';
+  }
+
   static String? validateAmount(String? input) {
     if (input == null || input.trim().isEmpty) {
       return 'Please enter an amount';

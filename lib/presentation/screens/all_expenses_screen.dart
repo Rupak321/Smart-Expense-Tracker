@@ -6,6 +6,7 @@ import '../../../core/models/expense_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/user_data_service.dart';
+import '../widgets/add_transaction_sheet.dart';
 
 class AllExpensesScreen extends StatelessWidget {
   const AllExpensesScreen({super.key});
@@ -106,7 +107,14 @@ class AllExpensesScreen extends StatelessWidget {
                               '- ${MoneyUtils.formatAmount(transaction.amount)}',
                           isExpense: transaction.isExpense,
                           icon: _iconForCategory(transaction.category),
-                          onTap: () => _confirmDelete(context, transaction),
+                          // Tapping used to open the delete confirmation,
+                          // which made a stray tap the start of destroying a
+                          // record. Editing is the safe default; deleting
+                          // stays on the deliberate swipe.
+                          onTap: () => showTransactionSheet(
+                            context,
+                            existing: transaction,
+                          ),
                         ),
                       );
                     },

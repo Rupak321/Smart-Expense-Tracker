@@ -163,12 +163,7 @@ class _MainNavigationState extends State<MainNavigation>
   }
 
   void _openAddTransaction() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => const AddTransactionSheet(),
-    );
+    showTransactionSheet(context);
   }
 }
 

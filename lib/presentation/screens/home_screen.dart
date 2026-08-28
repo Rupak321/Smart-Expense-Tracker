@@ -15,6 +15,7 @@ import '../../../core/utils/money_utils.dart';
 import '../../../core/utils/profile_image_storage.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/user_data_service.dart';
+import '../widgets/add_transaction_sheet.dart';
 import 'main_navigation.dart';
 import 'recurring_expenses_screen.dart';
 
@@ -379,6 +380,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+              ListTile(
+                onTap: () => Navigator.pop(sheetContext, 'edit'),
+                leading: Icon(
+                  Icons.edit_outlined,
+                  color: colorScheme.primary,
+                ),
+                title: const Text('Edit'),
+                subtitle: const Text('Change amount, date, category or type'),
+              ),
               if (!transaction.isExpense)
                 ListTile(
                   onTap: () => Navigator.pop(sheetContext, 'windfall'),
@@ -419,6 +429,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!mounted || action == null) return;
 
+    if (action == 'edit') {
+      await _editTransaction(transaction);
+      return;
+    }
+
     if (action == 'windfall') {
       await UserDataService.updateTransaction(
         transaction.id,
@@ -437,6 +452,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (action == 'delete') {
       await _confirmDelete(transaction);
+    }
+  }
+
+  Future<void> _editTransaction(ExpenseModel transaction) async {
+    final saved = await showTransactionSheet(context, existing: transaction);
+    if (saved == true && mounted) {
+      _showSnack('Transaction updated', icon: Icons.check_circle_rounded);
     }
   }
 

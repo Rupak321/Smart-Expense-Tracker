@@ -3,11 +3,16 @@ import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/components/app_widgets.dart';
+import '../../../core/categories/category_matcher.dart';
 import '../../../core/models/bill_reminder.dart';
+import '../../../core/models/expense_category.dart';
+import '../../../core/models/expense_model.dart';
 import '../../../core/services/ocr_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
 import '../../../services/bill_reminder_service.dart';
+import '../../../services/category_service.dart';
+import '../../../services/user_data_service.dart';
 import '../../../services/user_settings_service.dart';
 
 class BillReminderScreen extends StatefulWidget {
@@ -119,6 +124,7 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
                           reminder,
                           value,
                         ),
+                        onMarkPaid: () => _markPaid(reminder),
                       ),
                     ),
                   ),
@@ -150,6 +156,69 @@ class _BillReminderScreenState extends State<BillReminderScreen> {
 
   Future<void> _toggleReminder(BillReminder reminder, bool enabled) async {
     await UserSettingsService.saveBillReminder(reminder.copyWith(enabled: enabled));
+  }
+
+  /// Records the bill as an expense and rolls the reminder to next month.
+  ///
+  /// Reminders used to fire and then stop being the app's problem: paying one
+  /// still meant typing the same amount in by hand, so the reminder and the
+  /// transaction it was about never met.
+  Future<void> _markPaid(BillReminder reminder) async {
+    // Reuse the user's own vocabulary rather than inventing a name. A bill
+    // that matches nothing lands in the fallback, which they can change from
+    // the transaction itself.
+    final categories = await CategoryService.ensureSeeded();
+    final match = CategoryMatcher.match(
+      rawName: reminder.title,
+      categories: categories,
+      isExpense: true,
+    );
+    final category = match.category?.name ?? ExpenseCategory.fallbackName;
+
+    final transaction = ExpenseModel(
+      id: const Uuid().v4(),
+      title: reminder.title,
+      amount: reminder.amount,
+      category: category,
+      // The due date, not today. Paying the 1st on the 3rd is still the
+      // bill for the 1st, and dating it today would move it between months.
+      date: reminder.dueDate,
+      isExpense: true,
+    );
+
+    await UserDataService.addTransaction(transaction);
+
+    // Bills recur, so the reminder moves on rather than being consumed.
+    final next = DateTime(
+      reminder.dueDate.year,
+      reminder.dueDate.month + 1,
+      reminder.dueDate.day,
+    );
+    await UserSettingsService.saveBillReminder(
+      reminder.copyWith(dueDate: next),
+    );
+    await BillReminderService.rescheduleAll();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            '${reminder.title} recorded · next due '
+            '${next.day.toString().padLeft(2, '0')}/'
+            '${next.month.toString().padLeft(2, '0')}/${next.year}',
+          ),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () async {
+              await UserDataService.deleteTransaction(transaction.id);
+              await UserSettingsService.saveBillReminder(reminder);
+              await BillReminderService.rescheduleAll();
+            },
+          ),
+        ),
+      );
   }
 
   Future<void> _deleteReminder(BillReminder reminder) async {
@@ -483,12 +552,14 @@ class _ReminderTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final ValueChanged<bool> onEnabledChanged;
+  final VoidCallback onMarkPaid;
 
   const _ReminderTile({
     required this.reminder,
     required this.onEdit,
     required this.onDelete,
     required this.onEnabledChanged,
+    required this.onMarkPaid,
   });
 
   @override
@@ -576,6 +647,17 @@ class _ReminderTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: AppTokens.gapSm),
+              if (reminder.amount > 0)
+                IconButton(
+                  tooltip: 'Mark paid and record it',
+                  onPressed: onMarkPaid,
+                  icon: Icon(
+                    Icons.task_alt_rounded,
+                    size: 22,
+                    color: colorScheme.appIncome,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

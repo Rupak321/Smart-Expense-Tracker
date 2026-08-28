@@ -9,6 +9,7 @@ import '../core/categories/category_matcher.dart';
 import '../core/models/ai_chat_message.dart';
 import '../core/models/expense_model.dart';
 import '../core/models/expense_category.dart';
+import '../core/models/budget.dart';
 import '../core/models/financial_insights.dart';
 import '../core/models/financial_record_action.dart';
 import '../core/secrets.dart';
@@ -1035,6 +1036,31 @@ suggest they log a few days of spending or their latest income.
         );
       }
       buffer.writeln();
+    }
+
+    if (insights.budgets.isNotEmpty) {
+      buffer.writeln('Budgets they set for this month:');
+      for (final progress in insights.budgets) {
+        final state = switch (progress.health) {
+          BudgetHealth.over => 'OVER',
+          BudgetHealth.atRisk => 'on track to go over',
+          BudgetHealth.tight => 'tight',
+          BudgetHealth.comfortable => 'comfortable',
+        };
+        buffer.writeln(
+          '  - ${progress.budget.label}: '
+          '${_money(progress.spentPaisa)} of ${_money(progress.limitPaisa)} '
+          '(${(progress.ratio * 100).round()}%, $state, '
+          'projected ${_money(progress.projectedPaisa)} by month end)',
+        );
+      }
+      buffer
+        ..writeln(
+          'These are limits the user chose. Hold them to these rather than '
+          'inventing new ones, and never suggest a budget for something they '
+          'have already capped.',
+        )
+        ..writeln();
     }
 
     if (insights.concerns.isNotEmpty) {

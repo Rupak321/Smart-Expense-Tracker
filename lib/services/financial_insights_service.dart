@@ -1,8 +1,10 @@
 import '../core/models/bill_reminder.dart';
+import '../core/models/budget.dart';
 import '../core/models/expense_model.dart';
 import '../core/models/financial_insights.dart';
 import '../core/models/recurring_expense_model.dart';
 import '../core/utils/money_utils.dart';
+import 'budget_service.dart';
 import 'user_data_service.dart';
 import 'user_settings_service.dart';
 
@@ -45,10 +47,18 @@ class FinancialInsightsService {
       bills = const [];
     }
 
+    List<Budget> budgets;
+    try {
+      budgets = await BudgetService.getOnce();
+    } catch (_) {
+      budgets = const [];
+    }
+
     return compute(
       transactions: transactions,
       recurring: recurring,
       bills: bills,
+      budgets: budgets,
       now: now ?? DateTime.now(),
     );
   }
@@ -58,6 +68,7 @@ class FinancialInsightsService {
     required List<RecurringExpenseModel> recurring,
     required List<BillReminder> bills,
     required DateTime now,
+    List<Budget> budgets = const [],
   }) {
     var totalIncome = 0;
     var totalExpense = 0;
@@ -130,6 +141,11 @@ class FinancialInsightsService {
       last30DaysExpensePaisa: last30,
       committedMonthlyPaisa: committed,
       upcoming: upcoming,
+      budgets: BudgetCalculator.evaluate(
+        budgets: budgets,
+        transactions: transactions,
+        now: now,
+      ),
       stance: stance,
       concerns: concerns,
       wins: wins,

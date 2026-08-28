@@ -1,4 +1,5 @@
 import '../utils/money_utils.dart';
+import 'budget.dart';
 import 'expense_model.dart';
 
 /// How firm the assistant should be, decided from the numbers rather than
@@ -158,6 +159,8 @@ class FinancialInsights {
   final int committedMonthlyPaisa;
   final List<UpcomingCommitment> upcoming;
 
+  final List<BudgetProgress> budgets;
+
   final CoachStance stance;
   final List<String> concerns;
   final List<String> wins;
@@ -175,6 +178,7 @@ class FinancialInsights {
     required this.last30DaysExpensePaisa,
     required this.committedMonthlyPaisa,
     required this.upcoming,
+    this.budgets = const [],
     required this.stance,
     required this.concerns,
     required this.wins,

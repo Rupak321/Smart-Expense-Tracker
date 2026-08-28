@@ -70,12 +70,17 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
         final all = snapshot.data ?? const <ExpenseModel>[];
         final results = _filter.apply(all, query: _query);
 
-        final totalPaisa = results.fold(
-          0,
-          (total, transaction) => transaction.isExpense
-              ? total - transaction.amountPaisa
-              : total + transaction.amountPaisa,
-        );
+        // Transfers net to zero across the pair, so counting either half
+        // would make the summary disagree with the rows above it.
+        final totalPaisa = results.fold(0, (total, transaction) {
+          if (transaction.countsAsExpense) {
+            return total - transaction.amountPaisa;
+          }
+          if (transaction.countsAsIncome) {
+            return total + transaction.amountPaisa;
+          }
+          return total;
+        });
         final bottomInset =
             MediaQuery.paddingOf(context).bottom + AppTokens.gapXl;
         final isNarrowed = _filter.isActive || _query.isNotEmpty;

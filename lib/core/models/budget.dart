@@ -125,7 +125,7 @@ class BudgetCalculator {
     final daysInMonth = nextMonth.difference(monthStart).inDays;
 
     final thisMonth = transactions.where((transaction) {
-      return transaction.isExpense &&
+      return transaction.countsAsExpense &&
           !transaction.date.isBefore(monthStart) &&
           transaction.date.isBefore(nextMonth);
     }).toList();

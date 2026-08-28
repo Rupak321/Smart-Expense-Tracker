@@ -14,6 +14,7 @@ import '../../../services/account_deletion_service.dart';
 import '../../../services/app_lock_service.dart';
 import '../../../services/data_export_service.dart';
 import '../../../services/user_data_service.dart';
+import 'accounts_screen.dart';
 import 'bill_reminder_screen.dart';
 import 'budgets_screen.dart';
 import 'categories_screen.dart';
@@ -111,6 +112,17 @@ class _AccountScreenState extends State<AccountScreen> {
                       onTap: _showAppearancePicker,
                     );
                   },
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.account_balance_wallet_rounded,
+                  title: 'Accounts',
+                  subtitle: 'Cash, bank and wallets, and transfers between',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AccountsScreen(),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: AppTokens.gapSm),
                 _SettingsTile(

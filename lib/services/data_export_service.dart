@@ -83,10 +83,10 @@ class DataExportService {
     if (transactions.isEmpty) return 'No transactions recorded.';
 
     final income = transactions
-        .where((t) => !t.isExpense)
+        .where((t) => t.countsAsIncome)
         .fold(0, (sum, t) => sum + t.amountPaisa);
     final expense = transactions
-        .where((t) => t.isExpense)
+        .where((t) => t.countsAsExpense)
         .fold(0, (sum, t) => sum + t.amountPaisa);
 
     final dates = transactions.map((t) => t.date).toList()..sort();

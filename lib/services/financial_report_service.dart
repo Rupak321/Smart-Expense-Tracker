@@ -60,8 +60,8 @@ class FinancialReportService {
         transactions.where((tx) => period.contains(tx.date, now)).toList()
           ..sort((a, b) => b.date.compareTo(a.date));
 
-    final income = inWindow.where((tx) => !tx.isExpense).toList();
-    final expenses = inWindow.where((tx) => tx.isExpense).toList();
+    final income = inWindow.where((tx) => tx.countsAsIncome).toList();
+    final expenses = inWindow.where((tx) => tx.countsAsExpense).toList();
 
     final incomePaisa = income.fold(0, (sum, tx) => sum + tx.amountPaisa);
     final windfallPaisa = income
@@ -128,9 +128,9 @@ class FinancialReportService {
       monthBuckets[key] = ReportMonth(
         month: existing.month,
         incomePaisa:
-            existing.incomePaisa + (tx.isExpense ? 0 : tx.amountPaisa),
+            existing.incomePaisa + (tx.countsAsIncome ? tx.amountPaisa : 0),
         expensePaisa:
-            existing.expensePaisa + (tx.isExpense ? tx.amountPaisa : 0),
+            existing.expensePaisa + (tx.countsAsExpense ? tx.amountPaisa : 0),
       );
     }
     final months = monthBuckets.values.toList()

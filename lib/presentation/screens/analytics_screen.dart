@@ -54,10 +54,10 @@ class AnalyticsScreen extends StatelessWidget {
           snapshot.data ?? const <ExpenseModel>[],
         );
         final expenses = transactions
-            .where((transaction) => transaction.isExpense)
+            .where((transaction) => transaction.countsAsExpense)
             .toList();
         final incomePaisa = _totalPaisa(
-          transactions.where((transaction) => !transaction.isExpense),
+          transactions.where((transaction) => transaction.countsAsIncome),
         );
         final expensePaisa = _totalPaisa(expenses);
         final categorySlices = _buildCategorySlices(expenses);

@@ -75,9 +75,12 @@ class FinancialInsightsService {
     DateTime? earliest;
 
     for (final transaction in transactions) {
-      if (transaction.isExpense) {
+      // Transfers move money between the user's own accounts, so counting
+      // them here would add the same amount to both sides and make every
+      // month look busier and less profitable than it was.
+      if (transaction.countsAsExpense) {
         totalExpense += transaction.amountPaisa;
-      } else {
+      } else if (transaction.countsAsIncome) {
         totalIncome += transaction.amountPaisa;
       }
       if (earliest == null || transaction.date.isBefore(earliest)) {
@@ -92,11 +95,11 @@ class FinancialInsightsService {
     final lastMonth = _snapshotFor(transactions, lastMonthStart);
 
     final thisMonthExpenses = transactions
-        .where((t) => t.isExpense && _isInMonth(t.date, thisMonthStart))
+        .where((t) => t.countsAsExpense && _isInMonth(t.date, thisMonthStart))
         .toList();
     final lastMonthCategoryTotals = _categoryTotals(
       transactions.where(
-        (t) => t.isExpense && _isInMonth(t.date, lastMonthStart),
+        (t) => t.countsAsExpense && _isInMonth(t.date, lastMonthStart),
       ),
     );
 
@@ -111,7 +114,7 @@ class FinancialInsightsService {
 
     final thirtyDaysAgo = now.subtract(const Duration(days: 30));
     final last30 = transactions
-        .where((t) => t.isExpense && t.date.isAfter(thirtyDaysAgo))
+        .where((t) => t.countsAsExpense && t.date.isAfter(thirtyDaysAgo))
         .fold(0, (sum, t) => sum + t.amountPaisa);
 
     final committed = _monthlyCommitment(recurring);
@@ -167,6 +170,7 @@ class FinancialInsightsService {
 
     for (final transaction in transactions) {
       if (!_isInMonth(transaction.date, monthStart)) continue;
+      if (transaction.isTransfer) continue;
       count++;
       if (transaction.isExpense) {
         expense += transaction.amountPaisa;

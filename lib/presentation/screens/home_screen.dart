@@ -67,9 +67,11 @@ class _HomeScreenState extends State<HomeScreen> {
           snapshot.data ?? const <ExpenseModel>[],
         );
         final incomePaisa = _totalPaisa(
-          transactions.where((tx) => !tx.isExpense),
+          transactions.where((tx) => tx.countsAsIncome),
         );
-        final expensePaisa = _totalPaisa(transactions.where((tx) => tx.isExpense));
+        final expensePaisa = _totalPaisa(
+          transactions.where((tx) => tx.countsAsExpense),
+        );
         final balancePaisa = incomePaisa - expensePaisa;
 
         Widget content(String userName) {

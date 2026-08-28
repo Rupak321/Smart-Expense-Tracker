@@ -14,12 +14,13 @@ void main() {
       expect(MoneyUtils.formatPaisa(-50000), '-Rs. 500');
     });
 
-    // Note: the full formatter groups in threes (194,550 / 1,000,000) while
-    // formatCompactPaisa abbreviates with lakh and crore. That mismatch is
-    // pre-existing app behaviour, pinned here so any change is deliberate.
-    test('groups digits in threes', () {
-      expect(MoneyUtils.formatPaisa(19455000), 'Rs. 194,550');
-      expect(MoneyUtils.formatPaisa(100000000), 'Rs. 1,000,000');
+    // This used to group in threes (194,550 / 1,000,000) while
+    // formatCompactPaisa abbreviated with lakh and crore, so one screen could
+    // show the same magnitude two different ways. Both now follow the
+    // selected currency, which for rupees is the South Asian system.
+    test('groups digits the South Asian way for rupees', () {
+      expect(MoneyUtils.formatPaisa(19455000), 'Rs. 1,94,550');
+      expect(MoneyUtils.formatPaisa(100000000), 'Rs. 10,00,000');
     });
 
     test('shows paisa only when non-zero', () {

@@ -61,6 +61,26 @@ class UserSettingsService {
     }
   }
 
+  static Future<String?> loadCurrencyCode() async {
+    try {
+      final snapshot = await _settingsDoc().get();
+      return snapshot.data()?['currencyCode'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveCurrencyCode(String code) async {
+    try {
+      await _settingsDoc().set({
+        'currencyCode': code,
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // Display preference only - losing it costs the user nothing but a
+      // second tap next time.
+    }
+  }
+
   static Future<String?> getActiveAiSessionId() async {
     try {
       final snapshot = await _settingsDoc().get();

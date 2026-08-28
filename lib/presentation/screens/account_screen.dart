@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/components/app_widgets.dart';
 import '../../../core/models/user_profile_model.dart';
+import '../../../core/models/app_currency.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/currency_controller.dart';
 import '../../../core/theme/app_theme_controller.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/account_deletion_service.dart';
@@ -111,12 +113,14 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                 ),
                 const SizedBox(height: AppTokens.gapSm),
-                _SettingsTile(
-                  icon: Icons.currency_rupee_rounded,
-                  title: 'Currency',
-                  subtitle: 'Nepalese Rupee (Rs.)',
-                  onTap: () =>
-                      _showSettingMessage('Currency settings are coming soon'),
+                ValueListenableBuilder<AppCurrency>(
+                  valueListenable: CurrencyController.currency,
+                  builder: (context, currency, child) => _SettingsTile(
+                    icon: Icons.payments_rounded,
+                    title: 'Currency',
+                    subtitle: '${currency.name} (${currency.symbol})',
+                    onTap: _chooseCurrency,
+                  ),
                 ),
                 const SizedBox(height: AppTokens.gapLg),
                 const _SettingsGroupLabel('Reminders'),
@@ -167,6 +171,77 @@ class _AccountScreenState extends State<AccountScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _chooseCurrency() async {
+    final selected = await showModalBottomSheet<AppCurrency>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final current = CurrencyController.currency.value;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.gapXl,
+                  AppTokens.gapLg,
+                  AppTokens.gapXl,
+                  AppTokens.gapSm,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Currency',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.gapXl,
+                  0,
+                  AppTokens.gapXl,
+                  AppTokens.gapMd,
+                ),
+                child: Text(
+                  'Changes the symbol and how digits are grouped. Amounts you '
+                  'have already recorded are not converted.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              RadioGroup<AppCurrency>(
+                groupValue: current,
+                onChanged: (value) => Navigator.pop(sheetContext, value),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in AppCurrency.supported)
+                      RadioListTile<AppCurrency>(
+                        value: option,
+                        title: Text(option.name),
+                        subtitle: Text('${option.code} · ${option.symbol}'),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapMd),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null) return;
+    await CurrencyController.set(selected);
+    if (mounted) {
+      setState(() {});
+      _showSettingMessage('Amounts now shown in ${selected.name}');
+    }
   }
 
   Future<void> _exportData() async {

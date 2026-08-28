@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'core/theme/currency_controller.dart';
 import 'firebase_options.dart';
 import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/main_navigation.dart';
@@ -32,6 +33,7 @@ Future<void> main() async {
 
   await UserDataService.initialize();
   await AppThemeController.load();
+  await CurrencyController.load();
   await BillReminderService.initialize();
   await BillReminderService.rescheduleAll();
 

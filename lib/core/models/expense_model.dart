@@ -32,6 +32,9 @@ class ExpenseModel {
   /// and less profitable than it was.
   final String? transferGroupId;
 
+  /// On-device path to the receipt photo, if one was kept.
+  final String? receiptPath;
+
   ExpenseModel({
     required this.id,
     required this.title,
@@ -44,6 +47,7 @@ class ExpenseModel {
     this.isWindfall = false,
     this.accountId,
     this.transferGroupId,
+    this.receiptPath,
   });
 
   int get amountPaisa => MoneyUtils.amountToPaisa(amount);
@@ -63,6 +67,8 @@ class ExpenseModel {
   /// Money genuinely arriving.
   bool get countsAsIncome => !isExpense && !isTransfer;
 
+  bool get hasReceipt => receiptPath != null && receiptPath!.isNotEmpty;
+
   ExpenseModel copyWith({
     String? title,
     double? amount,
@@ -71,6 +77,8 @@ class ExpenseModel {
     bool? isExpense,
     bool? isWindfall,
     String? accountId,
+    String? receiptPath,
+    bool clearReceipt = false,
   }) {
     return ExpenseModel(
       id: id,
@@ -84,6 +92,7 @@ class ExpenseModel {
       isWindfall: isWindfall ?? this.isWindfall,
       accountId: accountId ?? this.accountId,
       transferGroupId: transferGroupId,
+      receiptPath: clearReceipt ? null : (receiptPath ?? this.receiptPath),
     );
   }
 }

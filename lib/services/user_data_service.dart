@@ -64,6 +64,7 @@ class UserDataService {
         'isWindfall': expense.isWindfall,
         'accountId': expense.accountId,
         'transferGroupId': expense.transferGroupId,
+        'receiptPath': expense.receiptPath,
       },
     );
   }
@@ -94,6 +95,7 @@ class UserDataService {
       isWindfall: data['isWindfall'] as bool? ?? false,
       accountId: data['accountId']?.toString(),
       transferGroupId: data['transferGroupId']?.toString(),
+      receiptPath: data['receiptPath']?.toString(),
     );
   }
 

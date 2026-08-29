@@ -5,6 +5,81 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-08-29
+
+A release about the parts of the app that were missing rather than the parts
+that were wrong: money can now be edited, searched, budgeted, attributed to an
+account, exported and locked away.
+
+### Added
+
+- **Transaction editing.** Records could only be created and deleted, so a
+  mistyped amount meant deleting the row and entering it again. Editing keeps
+  the original id, so the record is replaced rather than duplicated, and the
+  recurring link and auto-generated flag survive.
+- **A date field when recording.** Every manual entry used to be stamped with
+  the moment it was typed, so a receipt entered the next morning landed on the
+  wrong day and moved money between months.
+- **Search, filters and sorting** across the whole history — by title or
+  category, direction, period, category set, and four sort orders.
+- **Budgets**, per category or across all spending. Progress is reported three
+  ways: what is left, what the current pace projects by month end, and roughly
+  what can be spent per day without going over. The figures are given to the
+  assistant, so it holds you to limits you chose instead of inventing them.
+- **Accounts** — cash, bank, wallets and cards, each with an optional opening
+  balance and its own running balance.
+- **Transfers between accounts**, stored as a paired pair of rows that move
+  each balance without counting as income or spending.
+- **Receipt photos** attached to any transaction, from the camera or gallery,
+  viewable full size. Stored on the device rather than uploaded.
+- **App lock** behind the device biometric or PIN, re-arming when the app is
+  backgrounded.
+- **CSV export** of transactions and budgets through the share sheet.
+- **Account deletion**, clearing every stored record and closing the account.
+- **Currency setting** — NPR, INR, USD, EUR and GBP. Symbol and digit grouping
+  only; nothing is converted, since the app holds no exchange rate.
+- **Mark a bill reminder paid**, which records the expense against the due
+  date and rolls the reminder to next month.
+- **273 tests**, up from 156.
+
+### Changed
+
+- Amounts group digits the South Asian way for rupees — `85,38,550` rather
+  than `8,538,550`. Full and compact figures previously disagreed, so one
+  screen could describe the same magnitude two different ways.
+- Tapping a row in the transaction list opens it for editing. It used to open
+  the delete confirmation, making a stray tap the first step of destroying a
+  record.
+- The transaction list shows income as well as expenses.
+- Category icons come from the shared icon map rather than a local switch that
+  named categories no longer in the vocabulary, so every row fell through to a
+  default icon.
+
+### Fixed
+
+- **Expenses displayed as income.** Every read ran the title and category
+  through a keyword list — `gift`, `business`, `investment`, `refund` and more
+  — and forced the direction to income on a substring match. An expense filed
+  under "Shopping - Gift" came back as income and reached the balance, the
+  savings rate, every chart, the PDF and the figures the assistant was given.
+  The stored value was correct throughout; only the read was wrong.
+- **Release builds could not be produced at all.** R8 aborted on ML Kit
+  recogniser classes that are not dependencies. Debug builds skip
+  minification, which is why nothing caught it.
+- **Receipt scanning was dead in release builds.** R8 removed the no-argument
+  constructors Firebase instantiates reflectively, so every ML Kit registrar
+  failed at startup. Nothing crashed, so only a device showed it.
+
+### Known issues
+
+- PDFs cannot render Devanagari; unsupported characters are dropped rather
+  than drawn as boxes.
+- The application id is still `com.example.smartexpense`, which Play rejects.
+  Changing it orphans existing installs, so it needs doing deliberately.
+- Release builds are signed with the debug keystore.
+- Receipt images are not backed up and do not follow the account to another
+  device.
+
 ## [1.0.0] — 2026-08-13
 
 First tagged release. The app was rebuilt across its interface, its financial
@@ -77,7 +152,7 @@ reasoning and its reporting.
 
 - Income and expense direction is overridden at read time by a keyword
   heuristic, so an expense containing words such as *gift*, *business* or
-  *investment* can be displayed as income. Scheduled for the next release.
-- Transactions cannot be edited, only deleted.
+  *investment* can be displayed as income. *Fixed in 1.1.0.*
+- Transactions cannot be edited, only deleted. *Fixed in 1.1.0.*
 - PDFs cannot render Devanagari; unsupported characters are dropped rather
   than drawn as boxes.

@@ -1,227 +1,183 @@
-import 'dart:io';
-
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
-import 'package:path_provider_android/path_provider_android.dart';
+import 'package:flutter/services.dart';
 
-import 'core/models/expense_model.dart';
-import 'core/models/user_profile_model.dart';
+import 'core/theme/app_theme.dart';
 import 'core/theme/app_theme_controller.dart';
+import 'core/theme/currency_controller.dart';
+import 'firebase_options.dart';
+import 'presentation/screens/login_screen.dart';
 import 'presentation/screens/main_navigation.dart';
+import 'presentation/screens/lock_screen.dart';
+import 'services/app_lock_service.dart';
+import 'services/auth_service.dart';
+import 'services/bill_reminder_service.dart';
+import 'services/user_data_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _initHive();
-  runApp(const MyApp());
-}
 
-Future<void> _initHive() async {
-  final androidPathProvider = PathProviderAndroid();
-  final storagePath = await androidPathProvider.getApplicationSupportPath();
-  final hiveDirectory = Directory(storagePath ?? '.hive');
-  await hiveDirectory.create(recursive: true);
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.edgeToEdge,
+  );
 
-  Hive.init(hiveDirectory.path);
-
-  if (!Hive.isAdapterRegistered(ExpenseModelAdapter().typeId)) {
-    Hive.registerAdapter(ExpenseModelAdapter());
-  }
-  if (!Hive.isAdapterRegistered(UserProfileModelAdapter().typeId)) {
-    Hive.registerAdapter(UserProfileModelAdapter());
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization skipped: $e');
   }
 
-  if (!Hive.isBoxOpen('transactions')) {
-    await Hive.openBox<ExpenseModel>('transactions');
-  }
-  if (!Hive.isBoxOpen('user_profile')) {
-    await Hive.openBox<UserProfileModel>('user_profile');
-  }
-  // Open settings box used for persisting app settings (theme, etc.)
-  if (!Hive.isBoxOpen('settings')) {
-    await Hive.openBox('settings');
-  }
-
-  // Load stored theme preference (if any)
+  await UserDataService.initialize();
+  await AppLockService.load();
   await AppThemeController.load();
+  await CurrencyController.load();
+  await BillReminderService.initialize();
+  await BillReminderService.rescheduleAll();
+
+  runApp(const SmartExpenseApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class SmartExpenseApp extends StatelessWidget {
+  const SmartExpenseApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: AppThemeController.themeMode,
       builder: (context, themeMode, child) {
-        final seedColor = const Color(0xFF2A9D8F);
-        final lightScheme = ColorScheme.fromSeed(
-          seedColor: seedColor,
-          brightness: Brightness.light,
-        );
-        final darkScheme = ColorScheme.fromSeed(
-          seedColor: seedColor,
-          brightness: Brightness.dark,
-        );
-
         return MaterialApp(
-          title: 'Finance App',
+          title: 'SmartExpense',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            colorScheme: lightScheme,
-            useMaterial3: true,
-            fontFamily: 'Roboto',
-            scaffoldBackgroundColor: lightScheme.background,
-            appBarTheme: AppBarTheme(
-              backgroundColor: lightScheme.surface,
-              foregroundColor: lightScheme.onSurface,
-              iconTheme: IconThemeData(color: lightScheme.onSurface),
-              elevation: 0,
-            ),
-            floatingActionButtonTheme: FloatingActionButtonThemeData(
-              backgroundColor: lightScheme.primary,
-              foregroundColor: lightScheme.onPrimary,
-            ),
-            bottomNavigationBarTheme: BottomNavigationBarThemeData(
-              // Preserve previous light-mode look (explicit white background)
-              backgroundColor: Colors.white,
-              selectedItemColor: lightScheme.primary,
-              unselectedItemColor: Colors.grey[600],
-              showUnselectedLabels: true,
-              elevation: 8,
-            ),
-            cardTheme: CardThemeData(
-              color: lightScheme.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: lightScheme.surface,
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 16,
-                horizontal: 16,
-              ),
-              labelStyle: TextStyle(color: lightScheme.onSurfaceVariant),
-              hintStyle: TextStyle(color: lightScheme.onSurfaceVariant),
-              prefixIconColor: lightScheme.onSurfaceVariant,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: lightScheme.outline),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: lightScheme.outline),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: lightScheme.primary,
-                  width: 1.5,
-                ),
-              ),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: lightScheme.primary,
-                foregroundColor: lightScheme.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            switchTheme: SwitchThemeData(
-              thumbColor: MaterialStateProperty.all(lightScheme.primary),
-              trackColor: MaterialStateProperty.all(
-                lightScheme.primary.withValues(alpha: 0.3),
-              ),
-            ),
-            snackBarTheme: SnackBarThemeData(
-              backgroundColor: lightScheme.surfaceVariant,
-              contentTextStyle: TextStyle(color: lightScheme.onSurface),
-              actionTextColor: lightScheme.primary,
-            ),
-          ),
-          darkTheme: ThemeData(
-            colorScheme: darkScheme,
-            useMaterial3: true,
-            fontFamily: 'Roboto',
-            scaffoldBackgroundColor: darkScheme.background,
-            appBarTheme: AppBarTheme(
-              backgroundColor: darkScheme.surface,
-              foregroundColor: darkScheme.onSurface,
-              iconTheme: IconThemeData(color: darkScheme.onSurface),
-              elevation: 0,
-            ),
-            floatingActionButtonTheme: FloatingActionButtonThemeData(
-              backgroundColor: darkScheme.primary,
-              foregroundColor: darkScheme.onPrimary,
-            ),
-            bottomNavigationBarTheme: BottomNavigationBarThemeData(
-              // Dark mode uses theme surface to keep proper contrast
-              backgroundColor: darkScheme.surface,
-              selectedItemColor: darkScheme.primary,
-              unselectedItemColor: darkScheme.onSurfaceVariant,
-              showUnselectedLabels: true,
-              elevation: 8,
-            ),
-            cardTheme: CardThemeData(
-              color: darkScheme.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            inputDecorationTheme: InputDecorationTheme(
-              filled: true,
-              fillColor: darkScheme.surface,
-              contentPadding: const EdgeInsets.symmetric(
-                vertical: 16,
-                horizontal: 16,
-              ),
-              labelStyle: TextStyle(color: darkScheme.onSurfaceVariant),
-              hintStyle: TextStyle(color: darkScheme.onSurfaceVariant),
-              prefixIconColor: darkScheme.onSurfaceVariant,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: darkScheme.outline),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: darkScheme.outline),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(
-                  color: darkScheme.primary,
-                  width: 1.5,
-                ),
-              ),
-            ),
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: darkScheme.primary,
-                foregroundColor: darkScheme.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            switchTheme: SwitchThemeData(
-              thumbColor: MaterialStateProperty.all(darkScheme.primary),
-              trackColor: MaterialStateProperty.all(
-                darkScheme.primary.withValues(alpha: 0.3),
-              ),
-            ),
-            snackBarTheme: SnackBarThemeData(
-              backgroundColor: darkScheme.surfaceVariant,
-              contentTextStyle: TextStyle(color: darkScheme.onSurface),
-              actionTextColor: darkScheme.primary,
-            ),
-          ),
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
           themeMode: themeMode,
-          home: const MainNavigation(),
+          builder: (context, child) {
+            // Clamp text scaling. Users can still enlarge type, but beyond
+            // ~1.3x the dense money layouts start to overflow.
+            final mediaQuery = MediaQuery.of(context);
+            final scale = mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.9,
+              maxScaleFactor: 1.3,
+            );
+            return MediaQuery(
+              data: mediaQuery.copyWith(textScaler: scale),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: const _AuthGate(),
         );
       },
+    );
+  }
+}
+
+class _AuthGate extends StatefulWidget {
+  const _AuthGate();
+
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-lock on leaving, so the records are not sitting open in the task
+    // switcher for whoever picks the phone up next.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      AppLockService.lock();
+    }
+    if (state == AppLifecycleState.resumed && AppLockService.needsUnlock) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: AuthService.authStateChanges,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const _SplashScreen();
+        }
+
+        if (!snapshot.hasData) {
+          return const LoginScreen();
+        }
+
+        // The lock guards a signed-in session only. Showing it before sign-in
+        // would ask for a fingerprint to reach a login form.
+        if (AppLockService.needsUnlock) {
+          return LockScreen(onUnlocked: () => setState(() {}));
+        }
+
+        return const MainNavigation();
+      },
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+              ),
+              child: Icon(
+                Icons.account_balance_wallet_rounded,
+                color: colorScheme.primary,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: AppTokens.gapXl),
+            Text(
+              'Smart Expense',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: AppTokens.gapLg),
+            SizedBox(
+              width: 120,
+              child: LinearProgressIndicator(
+                minHeight: 3,
+                borderRadius: BorderRadius.circular(AppTokens.radiusPill),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

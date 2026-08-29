@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 class TransactionTile extends StatelessWidget {
   final String title;
   final String category;
@@ -21,40 +23,88 @@ class TransactionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: ListTile(
-        onTap: onTap,
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-            color: colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: colorScheme.primary, size: 22),
+    final accent = isExpense ? colorScheme.appExpense : colorScheme.appIncome;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppTokens.gapSm),
+      child: Material(
+        color: colorScheme.appCard,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          side: BorderSide(color: colorScheme.appBorder),
         ),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: colorScheme.onSurface,
-          ),
-        ),
-        subtitle: Text(
-          category,
-          style: TextStyle(fontSize: 12, color: colorScheme.onSurfaceVariant),
-        ),
-        trailing: Text(
-          amount,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-            color: isExpense ? const Color(0xFFE63946) : colorScheme.primary,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTokens.gapMd,
+              vertical: 10,
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppTokens.radiusSm),
+                  ),
+                  child: Icon(icon, color: accent, size: 21),
+                ),
+                const SizedBox(width: AppTokens.gapMd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          height: 1.2,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: AppTokens.gapXs),
+                      Text(
+                        category,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.2,
+                          color: colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppTokens.gapSm),
+                // Capped so a very large amount shrinks instead of pushing the
+                // title out of the row.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 132),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      amount,
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: accent,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

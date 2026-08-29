@@ -1,42 +1,87 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
+import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../../core/components/app_widgets.dart';
 import '../../../core/models/expense_model.dart';
+import '../../../core/models/financial_report.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/money_utils.dart';
+import '../../../services/user_data_service.dart';
+import 'all_expenses_screen.dart';
+import 'main_navigation.dart';
+import 'report_screen.dart';
 
 class AnalyticsScreen extends StatelessWidget {
   const AnalyticsScreen({super.key});
 
-  static const _accent = Color(0xFF2A9D8F);
-  static const _ink = Color(0xFF1A1A2E);
+  /// Lets the user pick a window, then opens the full report screen.
+  ///
+  /// The old flow was three stacked dialogs whose period options all produced
+  /// the same all-time report, because the chosen period was never used to
+  /// filter anything.
+  static Future<void> _openReportPicker(BuildContext context) async {
+    final period = await showModalBottomSheet<ReportPeriod>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => const _ReportPeriodSheet(),
+    );
+
+    if (period == null || !context.mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => ReportScreen(period: period)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final box = Hive.isBoxOpen('transactions') ? Hive.box<ExpenseModel>('transactions') : null;
+    final bottomInset = NavShellInsets.of(context);
 
-    if (box == null) {
-      return const Center(child: Text('No transactions available'));
-    }
-
-    return StreamBuilder<BoxEvent>(
-      stream: box.watch(),
+    return StreamBuilder<List<ExpenseModel>>(
+      stream: UserDataService.transactionsStream(),
       builder: (context, snapshot) {
-        final transactions = _sortedTransactions(box);
-        final expenses = transactions.where((transaction) => transaction.isExpense).toList();
-        final incomePaisa = _totalPaisa(transactions.where((transaction) => !transaction.isExpense));
+        final transactions = _sortedTransactions(
+          snapshot.data ?? const <ExpenseModel>[],
+        );
+        final expenses = transactions
+            .where((transaction) => transaction.countsAsExpense)
+            .toList();
+        final incomePaisa = _totalPaisa(
+          transactions.where((transaction) => transaction.countsAsIncome),
+        );
         final expensePaisa = _totalPaisa(expenses);
         final categorySlices = _buildCategorySlices(expenses);
-        final trend = _buildRecentTrend(expenses);
+        final sevenDayTrend = _buildRecentTrend(expenses, dayCount: 7);
+        final thirtyDayTrend = _buildRecentTrend(expenses, dayCount: 30);
 
         return CustomScrollView(
           slivers: [
-            const SliverToBoxAdapter(child: _Header()),
+            const SliverToBoxAdapter(
+              child: ScreenHeader(
+                title: 'Analytics',
+                subtitle: 'Where your money goes',
+                icon: Icons.insights_rounded,
+              ),
+            ),
             SliverToBoxAdapter(
               child: _SummaryBand(
                 incomePaisa: incomePaisa,
                 expensePaisa: expensePaisa,
+                onSpentTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const AllExpensesScreen(),
+                  ),
+                ),
               ),
             ),
             SliverToBoxAdapter(
@@ -45,60 +90,69 @@ class AnalyticsScreen extends StatelessWidget {
                 slices: categorySlices,
               ),
             ),
-            SliverToBoxAdapter(child: _TrendPanel(points: trend)),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Category Details',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
+              child: _TrendPanel(
+                sevenDayPoints: sevenDayTrend,
+                thirtyDayPoints: thirtyDayTrend,
               ),
             ),
+            const SliverToBoxAdapter(
+              child: SectionHeader(title: 'Category Details'),
+            ),
             if (categorySlices.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 170),
-                  child: Center(
-                    child: Text(
-                      'Add expenses to see detailed analytics',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 14),
-                    ),
-                  ),
+              const SliverToBoxAdapter(
+                child: EmptyStateCard(
+                  icon: Icons.pie_chart_outline_rounded,
+                  title: 'Nothing to break down yet',
+                  message: 'Add a few expenses to see category analytics here.',
                 ),
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 170),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppTokens.pageGutter,
+                ),
                 sliver: SliverList.separated(
                   itemCount: categorySlices.length,
                   separatorBuilder: (context, index) =>
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppTokens.gapSm),
                   itemBuilder: (context, index) {
                     return _CategoryBreakdownRow(
                       slice: categorySlices[index],
                       maxPaisa: categorySlices.first.paisa,
+                      totalPaisa: expensePaisa,
                     );
                   },
                 ),
               ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.pageGutter,
+                  AppTokens.gapXl,
+                  AppTokens.pageGutter,
+                  bottomInset,
+                ),
+                child: FilledButton.icon(
+                  onPressed: () => _openReportPicker(context),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  icon: const Icon(Icons.picture_as_pdf_rounded),
+                  label: const Text('Generate Report'),
+                ),
+              ),
+            ),
           ],
         );
       },
     );
   }
 
-  List<ExpenseModel> _sortedTransactions(Box<ExpenseModel>? box) {
-    if (box == null) {
-      return [];
-    }
-
-    final transactions = box.values.toList();
-    transactions.sort((first, second) => second.date.compareTo(first.date));
-    return transactions;
+  List<ExpenseModel> _sortedTransactions(List<ExpenseModel> transactions) {
+    final sorted = List<ExpenseModel>.from(transactions);
+    sorted.sort((first, second) => second.date.compareTo(first.date));
+    return sorted;
   }
 
   int _totalPaisa(Iterable<ExpenseModel> transactions) {
@@ -118,31 +172,82 @@ class AnalyticsScreen extends StatelessWidget {
       );
     }
 
-    final colors = <String, Color>{
-      'Food': const Color(0xFFE76F51),
-      'Travel': const Color(0xFF457B9D),
-      'Shopping': const Color(0xFFE9C46A),
-      'Bills': const Color(0xFF2A9D8F),
-      'Other': const Color(0xFF7C6AAB),
-    };
+    // Biggest first, so the largest slices get their natural category colour
+    // and only the long tail falls back to the palette.
+    final entries = totals.entries.toList()
+      ..sort((first, second) => second.value.compareTo(first.value));
 
-    final slices = totals.entries.map((entry) {
-      return _CategorySlice(
-        label: entry.key,
-        paisa: entry.value,
-        color: colors[entry.key] ?? _accent,
-        icon: _iconForCategory(entry.key),
-      );
-    }).toList();
+    // Two categories used to be able to land on the same colour — "Food -
+    // Restaurant" and "Food - Miscellaneous" both matched 'food' and came out
+    // identical in the donut and the legend. Colours are claimed once now.
+    final claimed = <Color>{};
 
-    slices.sort((first, second) => second.paisa.compareTo(first.paisa));
-    return slices;
+    Color? preferredColor(String category) {
+      final lower = category.toLowerCase();
+      if (lower.contains('food') ||
+          lower.contains('restaurant') ||
+          lower.contains('grocer')) {
+        return AppColorRoles.chartPalette[0];
+      }
+      if (lower.contains('travel') || lower.contains('transport')) {
+        return AppColorRoles.chartPalette[1];
+      }
+      if (lower.contains('shopping') || lower.contains('clothes')) {
+        return AppColorRoles.chartPalette[2];
+      }
+      if (lower.contains('bill') || lower.contains('utilit')) {
+        return AppColorRoles.chartPalette[3];
+      }
+      if (lower.contains('health') || lower.contains('medic')) {
+        return AppColorRoles.chartPalette[4];
+      }
+      if (lower.contains('entertain') || lower.contains('movie')) {
+        return AppColorRoles.chartPalette[5];
+      }
+      return null;
+    }
+
+    // Two passes so a category with a natural colour always gets it. A single
+    // pass let an unmatched category ahead of it in the list take that colour
+    // first — "Other" ended up wearing the food orange while "Food -
+    // Restaurant" was pushed onto blue.
+    final assigned = <String, Color>{};
+    for (final entry in entries) {
+      final preferred = preferredColor(entry.key);
+      if (preferred != null && claimed.add(preferred)) {
+        assigned[entry.key] = preferred;
+      }
+    }
+
+    Color fallbackFor(String category) {
+      for (final candidate in AppColorRoles.chartPalette) {
+        if (claimed.add(candidate)) {
+          return candidate;
+        }
+      }
+      // More categories than palette entries: fall back to a stable pick.
+      return AppColorRoles.chartPalette[category.hashCode.abs() %
+          AppColorRoles.chartPalette.length];
+    }
+
+    return [
+      for (final entry in entries)
+        _CategorySlice(
+          label: entry.key,
+          paisa: entry.value,
+          color: assigned[entry.key] ?? fallbackFor(entry.key),
+          icon: _iconForCategory(entry.key),
+        ),
+    ];
   }
 
-  List<_TrendPoint> _buildRecentTrend(List<ExpenseModel> expenses) {
+  List<_TrendPoint> _buildRecentTrend(
+    List<ExpenseModel> expenses, {
+    required int dayCount,
+  }) {
     final today = DateTime.now();
-    final days = List.generate(7, (index) {
-      final day = today.subtract(Duration(days: 6 - index));
+    final days = List.generate(dayCount, (index) {
+      final day = today.subtract(Duration(days: dayCount - 1 - index));
       return DateTime(day.year, day.month, day.day);
     });
     final totals = {for (final day in days) day: 0};
@@ -159,7 +264,10 @@ class AnalyticsScreen extends StatelessWidget {
     }
 
     return days.map((day) {
-      return _TrendPoint(label: _shortDay(day), paisa: totals[day] ?? 0);
+      return _TrendPoint(
+        label: dayCount == 7 ? _shortDay(day) : day.day.toString(),
+        paisa: totals[day] ?? 0,
+      );
     }).toList();
   }
 
@@ -169,90 +277,70 @@ class AnalyticsScreen extends StatelessWidget {
   }
 
   IconData _iconForCategory(String category) {
-    switch (category) {
-      case 'Food':
-        return Icons.restaurant_rounded;
-      case 'Travel':
-        return Icons.flight_takeoff_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Bills':
-        return Icons.receipt_long_rounded;
-      default:
-        return Icons.receipt_long_rounded;
-    }
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header();
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Analytics',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                color: colorScheme.onSurface,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.insights_rounded,
-              color: colorScheme.primary,
-            ),
-          ),
-        ],
-      ),
-    );
+    final lower = category.toLowerCase();
+    if (lower.contains('food') || lower.contains('restaurant') || lower.contains('grocer')) return Icons.restaurant_rounded;
+    if (lower.contains('shopping') || lower.contains('clothes') || lower.contains('electronics')) return Icons.shopping_bag_rounded;
+    if (lower.contains('travel') || lower.contains('transport')) return Icons.flight_takeoff_rounded;
+    if (lower.contains('bill') || lower.contains('utilit')) return Icons.receipt_long_rounded;
+    if (lower.contains('salary') || lower.contains('income') || lower.contains('freelance') || lower.contains('business')) return Icons.attach_money_rounded;
+    if (lower.contains('invest')) return Icons.trending_up_rounded;
+    if (lower.contains('gift')) return Icons.card_giftcard_rounded;
+    if (lower.contains('entertain') || lower.contains('movie')) return Icons.movie_rounded;
+    if (lower.contains('health') || lower.contains('medic')) return Icons.medical_services_rounded;
+    return Icons.category_rounded;
   }
 }
 
 class _SummaryBand extends StatelessWidget {
   final int incomePaisa;
   final int expensePaisa;
+  final VoidCallback onSpentTap;
 
-  const _SummaryBand({required this.incomePaisa, required this.expensePaisa});
+  const _SummaryBand({
+    required this.incomePaisa,
+    required this.expensePaisa,
+    required this.onSpentTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final balancePaisa = incomePaisa - expensePaisa;
 
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _MetricCard(
-              label: 'Balance',
-              amount: MoneyUtils.formatPaisa(balancePaisa),
-              icon: Icons.account_balance_wallet_rounded,
-              color: Theme.of(context).colorScheme.primary,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.pageGutter,
+        vertical: AppTokens.gapSm,
+      ),
+      // Stretch keeps both cards the same height even though each sizes to its
+      // own content.
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: _MetricCard(
+                label: 'Balance',
+                amount: MoneyUtils.formatPaisa(balancePaisa),
+                icon: Icons.account_balance_wallet_rounded,
+                color: balancePaisa < 0
+                    ? colorScheme.appExpense
+                    : colorScheme.primary,
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _MetricCard(
-              label: 'Spent',
-              amount: MoneyUtils.formatPaisa(expensePaisa),
-              icon: Icons.trending_down_rounded,
-              color: Theme.of(context).colorScheme.error,
+            const SizedBox(width: AppTokens.gapMd),
+            Expanded(
+              child: _MetricCard(
+                label: 'Spent',
+                amount: MoneyUtils.formatPaisa(expensePaisa),
+                icon: Icons.trending_down_rounded,
+                color: colorScheme.appExpense,
+                onTap: onSpentTap,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -263,143 +351,248 @@ class _MetricCard extends StatelessWidget {
   final String amount;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _MetricCard({
     required this.label,
     required this.amount,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 104,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.appCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          // No fixed height: the card grows with the text scale instead of
+          // clipping the amount.
+          padding: const EdgeInsets.all(AppTokens.gapLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, color: color, size: 20),
-              const Spacer(),
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              Row(
+                children: [
+                  Icon(icon, color: color, size: 20),
+                  const Spacer(),
+                  if (onTap != null)
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 18,
+                      color: colorScheme.onSurfaceVariant,
+                    )
+                  else
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapXs),
+              SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    amount,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: colorScheme.onSurface,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-          const Spacer(),
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              amount,
-              maxLines: 1,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _ChartPanel extends StatelessWidget {
+class _ChartPanel extends StatefulWidget {
   final int totalExpensePaisa;
   final List<_CategorySlice> slices;
 
   const _ChartPanel({required this.totalExpensePaisa, required this.slices});
 
   @override
+  State<_ChartPanel> createState() => _ChartPanelState();
+}
+
+class _ChartPanelState extends State<_ChartPanel> {
+  final GlobalKey _boundaryKey = GlobalKey();
+  bool _isSharing = false;
+
+  Future<void> _shareChart() async {
+    if (_isSharing) return;
+
+    setState(() {
+      _isSharing = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final boundary = _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 3.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null) {
+            final pngBytes = byteData.buffer.asUint8List();
+            final directory = await getTemporaryDirectory();
+            final filePath = '${directory.path}/expense_breakdown_${DateTime.now().millisecondsSinceEpoch}.png';
+            final file = File(filePath);
+            await file.writeAsBytes(pngBytes);
+
+            if (!mounted) return;
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: 'My Expense Breakdown from Smart Expense!',
+              sharePositionOrigin: origin,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error sharing chart: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to share chart: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSharing = false;
+          });
+        }
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Expense Breakdown',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 18),
-          Center(
-            child: SizedBox(
-              width: 190,
-              height: 190,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CustomPaint(
-                    size: const Size.square(176),
-                    painter: _DonutChartPainter(slices: slices, backgroundColor: colorScheme.outline),
+    return RepaintBoundary(
+      key: _boundaryKey,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(
+          AppTokens.pageGutter,
+          AppTokens.gapSm,
+          AppTokens.pageGutter,
+          0,
+        ),
+        padding: const EdgeInsets.all(AppTokens.gapLg),
+        decoration: BoxDecoration(
+          color: colorScheme.appCard,
+          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+          border: Border.all(color: colorScheme.appBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Expense Breakdown',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Total Spent',
-                        style: TextStyle(
-                          color: colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                ),
+                if (widget.slices.isNotEmpty && !_isSharing)
+                  IconButton(
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    tooltip: 'Share breakdown chart',
+                    onPressed: _shareChart,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppTokens.gapMd),
+            Center(
+              child: SizedBox(
+                width: 190,
+                height: 190,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(
+                      size: const Size.square(176),
+                      painter: _DonutChartPainter(slices: widget.slices, backgroundColor: colorScheme.appCardMuted),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Total Spent',
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      SizedBox(
-                        width: 112,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            MoneyUtils.formatPaisa(totalExpensePaisa),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: colorScheme.onSurface,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          width: 112,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              MoneyUtils.formatPaisa(widget.totalExpensePaisa),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: colorScheme.onSurface,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _LegendList(slices: slices, totalExpensePaisa: totalExpensePaisa),
-        ],
+            const SizedBox(height: 16),
+            _LegendList(slices: widget.slices, totalExpensePaisa: widget.totalExpensePaisa),
+          ],
+        ),
       ),
     );
   }
@@ -413,13 +606,18 @@ class _LegendList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final visibleSlices = slices.take(4).toList();
+    final hiddenCount = slices.length - visibleSlices.length;
 
     if (visibleSlices.isEmpty) {
       return Center(
         child: Text(
           'No expenses yet',
-          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13),
+          style: TextStyle(
+            color: colorScheme.onSurfaceVariant,
+            fontSize: 13,
+          ),
         ),
       );
     }
@@ -439,23 +637,24 @@ class _LegendList extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: AppTokens.gapSm),
                 Expanded(
                   child: Text(
                     slice.label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: colorScheme.onSurface,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
+                const SizedBox(width: AppTokens.gapSm),
                 Text(
                   slice.percentLabel(totalExpensePaisa),
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: colorScheme.onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
@@ -463,93 +662,16 @@ class _LegendList extends StatelessWidget {
               ],
             ),
           ),
-      ],
-    );
-  }
-}
-
-class _TrendPanel extends StatelessWidget {
-  final List<_TrendPoint> points;
-
-  const _TrendPanel({required this.points});
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Last 7 Days',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(height: 112, child: _TrendBars(points: points)),
-        ],
-      ),
-    );
-  }
-}
-
-class _TrendBars extends StatelessWidget {
-  final List<_TrendPoint> points;
-
-  const _TrendBars({required this.points});
-
-  @override
-  Widget build(BuildContext context) {
-    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        for (final point in points)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: maxValue == 0
-                            ? 0.08
-                            : math.max(0.08, point.paisa / maxValue),
-                        child: Container(
-                          width: 18,
-                          decoration: BoxDecoration(
-                            color: point.paisa == 0
-                                ? Theme.of(context).colorScheme.outline
-                                : Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    point.label,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+        // Previously the extra categories just vanished with no hint.
+        if (hiddenCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: AppTokens.gapSm),
+            child: Text(
+              '+$hiddenCount more in Category Details',
+              style: TextStyle(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -558,21 +680,718 @@ class _TrendBars extends StatelessWidget {
   }
 }
 
-class _CategoryBreakdownRow extends StatelessWidget {
-  final _CategorySlice slice;
-  final int maxPaisa;
+class _TrendPanel extends StatefulWidget {
+  final List<_TrendPoint> sevenDayPoints;
+  final List<_TrendPoint> thirtyDayPoints;
 
-  const _CategoryBreakdownRow({required this.slice, required this.maxPaisa});
+  const _TrendPanel({
+    required this.sevenDayPoints,
+    required this.thirtyDayPoints,
+  });
+
+  @override
+  State<_TrendPanel> createState() => _TrendPanelState();
+}
+
+class _TrendPanelState extends State<_TrendPanel> {
+  var _selectedRange = _TrendRange.sevenDays;
+  final GlobalKey _boundaryKey = GlobalKey();
+  bool _isSharing = false;
+
+  List<_TrendPoint> get _points {
+    return _selectedRange == _TrendRange.sevenDays
+        ? widget.sevenDayPoints
+        : widget.thirtyDayPoints;
+  }
+
+  int get _dayCount {
+    return _selectedRange == _TrendRange.sevenDays ? 7 : 30;
+  }
+
+  Future<void> _shareChart() async {
+    if (_isSharing) return;
+
+    setState(() {
+      _isSharing = true;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final boundary = _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+        if (boundary != null) {
+          final image = await boundary.toImage(pixelRatio: 3.0);
+          final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+          if (byteData != null) {
+            final pngBytes = byteData.buffer.asUint8List();
+            final directory = await getTemporaryDirectory();
+            final filePath = '${directory.path}/spending_trend_${_dayCount}d_${DateTime.now().millisecondsSinceEpoch}.png';
+            final file = File(filePath);
+            await file.writeAsBytes(pngBytes);
+
+            if (!mounted) return;
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: 'My $_dayCount Days Spending Trend from Smart Expense!',
+              sharePositionOrigin: origin,
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error sharing chart: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to share chart: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isSharing = false;
+          });
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final points = _points;
+    final totalPaisa = points.fold(0, (sum, point) => sum + point.paisa);
+    final changePaisa = points.isEmpty
+        ? 0
+        : points.last.paisa - points.first.paisa;
+    final changePercent = points.isEmpty || points.first.paisa == 0
+        ? 0.0
+        : changePaisa / points.first.paisa * 100;
+    final isIncrease = changePaisa >= 0;
+
+    final trendColor = isIncrease
+        ? colorScheme.appExpense
+        : colorScheme.appIncome;
+
+    return RepaintBoundary(
+      key: _boundaryKey,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(
+          AppTokens.pageGutter,
+          AppTokens.gapMd,
+          AppTokens.pageGutter,
+          0,
+        ),
+        padding: const EdgeInsets.fromLTRB(
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+          AppTokens.gapLg,
+        ),
+        decoration: BoxDecoration(
+          color: colorScheme.appCard,
+          borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+          border: Border.all(color: colorScheme.appBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Last $_dayCount Days',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: colorScheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Expense trend',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AppTokens.gapSm),
+                // Right column is width-capped; without this the total pushed
+                // the whole header off-screen for six-figure amounts.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          MoneyUtils.formatPaisa(totalPaisa),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppTokens.gapSm),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: trendColor.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(
+                            AppTokens.radiusPill,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isIncrease
+                                  ? Icons.trending_up_rounded
+                                  : Icons.trending_down_rounded,
+                              color: trendColor,
+                              size: 15,
+                            ),
+                            const SizedBox(width: AppTokens.gapXs),
+                            Flexible(
+                              child: Text(
+                                '${isIncrease ? '+' : ''}'
+                                '${changePercent.toStringAsFixed(1)}%',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: trendColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (points.isNotEmpty && !_isSharing)
+                  IconButton(
+                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    tooltip: 'Share trend chart',
+                    onPressed: _shareChart,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+            const SizedBox(height: AppTokens.gapLg),
+            _TrendRangeSwitch(
+              selectedRange: _selectedRange,
+              onChanged: (range) {
+                setState(() {
+                  _selectedRange = range;
+                });
+              },
+            ),
+            const SizedBox(height: 22),
+            TweenAnimationBuilder<double>(
+              key: ValueKey(
+                '$_dayCount-${points.map((point) => point.paisa).join(',')}',
+              ),
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 650),
+              curve: Curves.easeOutQuart,
+              builder: (context, progress, child) {
+                return SizedBox(
+                  height: points.length > 7 ? 210 : 240,
+                  child: _TrendLineChart(points: points, progress: progress),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _TrendRange { sevenDays, thirtyDays }
+
+class _TrendRangeSwitch extends StatelessWidget {
+  final _TrendRange selectedRange;
+  final ValueChanged<_TrendRange> onChanged;
+
+  const _TrendRangeSwitch({
+    required this.selectedRange,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      height: 76,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      height: 38,
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).colorScheme.outline),
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        children: [
+          _TrendRangeOption(
+            label: '7 Days',
+            isSelected: selectedRange == _TrendRange.sevenDays,
+            onTap: () => onChanged(_TrendRange.sevenDays),
+          ),
+          _TrendRangeOption(
+            label: '30 Days',
+            isSelected: selectedRange == _TrendRange.thirtyDays,
+            onTap: () => onChanged(_TrendRange.thirtyDays),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrendRangeOption extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TrendRangeOption({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isSelected ? colorScheme.primary : Colors.transparent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrendLineChart extends StatelessWidget {
+  final List<_TrendPoint> points;
+  final double progress;
+
+  const _TrendLineChart({required this.points, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
+    final minValue = points.fold(
+      maxValue,
+      (min, point) => math.min(min, point.paisa),
+    );
+    final hasValues = maxValue > 0;
+    final labels = _axisLabels(minValue, maxValue);
+
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: 64,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final label in labels)
+                      // Shrink-to-fit keeps six-figure ticks inside the fixed
+                      // gutter at any text scale.
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          hasValues
+                              ? MoneyUtils.formatCompactPaisa(label)
+                              : 'Rs. 0',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: CustomPaint(
+                  painter: _TrendLinePainter(
+                    points: points,
+                    progress: progress,
+                    lineColor: const Color(0xFFF6B900),
+                    gridColor: colorScheme.appBorder,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.only(left: 74),
+          child: points.length > 7
+              ? _SparseTrendLabels(
+                  labels: _sparseBottomLabels(),
+                  textColor: colorScheme.onSurfaceVariant,
+                )
+              : Row(
+                  children: [
+                    for (final point in points)
+                      Expanded(
+                        child: Text(
+                          point.label,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+        if (points.length <= 7) ...[
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 74),
+            child: Row(
+              children: [
+                for (var index = 0; index < points.length; index++)
+                  Expanded(
+                    child: _TrendChangeLabel(
+                      value: index == 0
+                          ? points[index].paisa
+                          : points[index].paisa - points[index - 1].paisa,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  List<int> _axisLabels(int minValue, int maxValue) {
+    if (maxValue == 0) {
+      return const [0, 0, 0, 0, 0];
+    }
+
+    final paddedMax = (maxValue * 1.14).ceil();
+    final paddedMin = math.max(0, (minValue * 0.82).floor());
+    return List.generate(5, (index) {
+      final value = paddedMax - ((paddedMax - paddedMin) * index / 4);
+      return value.round();
+    });
+  }
+
+  List<String> _sparseBottomLabels() {
+    if (points.isEmpty) {
+      return [];
+    }
+
+    final lastIndex = points.length - 1;
+    final indexes = <int>{0, 5, 10, 15, 20, 25, lastIndex}
+        .where((index) => index >= 0 && index <= lastIndex)
+        .toList();
+    return indexes.map((index) => points[index].label).toList();
+  }
+
+}
+
+class _SparseTrendLabels extends StatelessWidget {
+  final List<String> labels;
+  final Color textColor;
+
+  const _SparseTrendLabels({
+    required this.labels,
+    required this.textColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        for (final label in labels)
+          Text(
+            label,
+            maxLines: 1,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TrendChangeLabel extends StatelessWidget {
+  final int value;
+
+  const _TrendChangeLabel({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isIncrease = value >= 0;
+    // Spending more day-over-day is the bad direction, so it reads red here
+    // exactly like the panel header above.
+    final color = isIncrease
+        ? Theme.of(context).colorScheme.appExpense
+        : Theme.of(context).colorScheme.appIncome;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isIncrease
+              ? Icons.arrow_drop_up_rounded
+              : Icons.arrow_drop_down_rounded,
+          color: color,
+          size: 18,
+        ),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            '${isIncrease ? '+' : '-'}'
+            '${MoneyUtils.formatCompactPaisa(value.abs())}',
+            maxLines: 1,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrendLinePainter extends CustomPainter {
+  final List<_TrendPoint> points;
+  final double progress;
+  final Color lineColor;
+  final Color gridColor;
+
+  const _TrendLinePainter({
+    required this.points,
+    required this.progress,
+    required this.lineColor,
+    required this.gridColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const chartPadding = 16.0;
+    final chartLeft = chartPadding;
+    final chartRight = size.width - chartPadding;
+    final chartWidth = math.max(1.0, chartRight - chartLeft);
+    final clampedProgress = progress.clamp(0.0, 1.0);
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+
+    for (var index = 0; index < 5; index++) {
+      final y = size.height * index / 4;
+      canvas.drawLine(Offset(chartLeft, y), Offset(chartRight, y), gridPaint);
+    }
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    final maxValue = points.fold(0, (max, point) => math.max(max, point.paisa));
+    final minValue = points.fold(
+      maxValue,
+      (min, point) => math.min(min, point.paisa),
+    );
+    final paddedMax = maxValue == 0 ? 1.0 : maxValue * 1.14;
+    final paddedMin = maxValue == 0 ? 0.0 : math.max(0.0, minValue * 0.82);
+    final range = math.max(1.0, paddedMax - paddedMin);
+    final gap = points.length == 1 ? 0.0 : chartWidth / (points.length - 1);
+
+    final chartPoints = <Offset>[
+      for (var index = 0; index < points.length; index++)
+        Offset(
+          points.length == 1 ? size.width / 2 : chartLeft + gap * index,
+          size.height -
+              ((points[index].paisa - paddedMin) / range * size.height),
+        ),
+    ];
+
+    final curvePath = _smoothPath(chartPoints);
+    final fillPath = Path.from(curvePath)
+      ..lineTo(chartRight, size.height)
+      ..lineTo(chartLeft, size.height)
+      ..close();
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          lineColor.withValues(alpha: 0.26),
+          lineColor.withValues(alpha: 0.02),
+        ],
+      ).createShader(Offset.zero & size);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(
+      chartLeft - chartPadding,
+      -20,
+      chartWidth * clampedProgress + chartPadding,
+      size.height + 40,
+    ));
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(curvePath, linePaint);
+    canvas.restore();
+
+    final marker = _markerAtProgress(chartPoints, clampedProgress);
+    final markerPaint = Paint()..color = lineColor;
+    final haloPaint = Paint()..color = lineColor.withValues(alpha: 0.18);
+    canvas.drawCircle(marker, 14, haloPaint);
+    canvas.drawCircle(marker, 6, markerPaint);
+    canvas.drawCircle(marker, 3, Paint()..color = Colors.white);
+  }
+
+  Path _smoothPath(List<Offset> offsets) {
+    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
+    if (offsets.length == 1) {
+      return path;
+    }
+
+    for (var index = 0; index < offsets.length - 1; index++) {
+      final current = offsets[index];
+      final next = offsets[index + 1];
+      final controlX = (current.dx + next.dx) / 2;
+      path.cubicTo(
+        controlX,
+        current.dy,
+        controlX,
+        next.dy,
+        next.dx,
+        next.dy,
+      );
+    }
+
+    return path;
+  }
+
+  Offset _markerAtProgress(List<Offset> offsets, double progress) {
+    if (offsets.length == 1) {
+      return offsets.first;
+    }
+
+    final position = (offsets.length - 1) * progress;
+    final lowerIndex = position.floor().clamp(0, offsets.length - 1);
+    final upperIndex = math.min(lowerIndex + 1, offsets.length - 1);
+    final localProgress = position - lowerIndex;
+    return Offset.lerp(
+      offsets[lowerIndex],
+      offsets[upperIndex],
+      localProgress,
+    )!;
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendLinePainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.progress != progress ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _CategoryBreakdownRow extends StatelessWidget {
+  final _CategorySlice slice;
+  final int maxPaisa;
+  final int totalPaisa;
+
+  const _CategoryBreakdownRow({
+    required this.slice,
+    required this.maxPaisa,
+    required this.totalPaisa,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      // Height comes from the content, so a large text scale grows the row
+      // instead of overflowing it.
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.gapLg,
+        vertical: AppTokens.gapMd,
+      ),
+      decoration: BoxDecoration(
+        color: colorScheme.appCard,
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        border: Border.all(color: colorScheme.appBorder),
       ),
       child: Row(
         children: [
@@ -580,47 +1399,76 @@ class _CategoryBreakdownRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: slice.color.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(10),
+              color: slice.color.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(AppTokens.radiusSm),
             ),
             child: Icon(slice.icon, color: slice.color, size: 22),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: AppTokens.gapMd),
           Expanded(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  slice.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AnalyticsScreen._ink,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        slice.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          // Was a hardcoded near-black that vanished in dark
+                          // mode.
+                          color: colorScheme.onSurface,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppTokens.gapSm),
+                    // Capped and shrink-to-fit so long amounts never push the
+                    // row past its width.
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 128),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          MoneyUtils.formatPaisa(slice.paisa),
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: colorScheme.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: AppTokens.gapSm),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(AppTokens.radiusPill),
                   child: LinearProgressIndicator(
-                    minHeight: 5,
+                    minHeight: 6,
                     value: maxPaisa == 0 ? 0 : slice.paisa / maxPaisa,
                     color: slice.color,
-                    backgroundColor: Theme.of(context).colorScheme.outline,
+                    backgroundColor: colorScheme.appCardMuted,
+                  ),
+                ),
+                const SizedBox(height: AppTokens.gapXs + 2),
+                Text(
+                  '${slice.percentLabel(totalPaisa)} of total spending',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            MoneyUtils.formatPaisa(slice.paisa),
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -706,4 +1554,128 @@ class _TrendPoint {
   final int paisa;
 
   const _TrendPoint({required this.label, required this.paisa});
+}
+
+/// Period chooser for the report.
+class _ReportPeriodSheet extends StatelessWidget {
+  const _ReportPeriodSheet();
+
+  static const _periods = [
+    ReportPeriod.last7Days,
+    ReportPeriod.last30Days,
+    ReportPeriod.monthToDate,
+    ReportPeriod.lastMonth,
+    ReportPeriod.last3Months,
+    ReportPeriod.thisYear,
+    ReportPeriod.allTime,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppTokens.gapXl,
+              0,
+              AppTokens.gapXl,
+              AppTokens.gapSm,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Generate report',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: AppTokens.gapXs),
+                Text(
+                  'Pick the period to cover.',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppTokens.gapLg,
+                vertical: AppTokens.gapSm,
+              ),
+              itemCount: _periods.length,
+              itemBuilder: (context, index) {
+                final period = _periods[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppTokens.gapSm),
+                  child: Material(
+                    color: colorScheme.appCard,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                      side: BorderSide(color: colorScheme.appBorder),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: ListTile(
+                      onTap: () => Navigator.of(context).pop(period),
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(
+                            AppTokens.radiusSm,
+                          ),
+                        ),
+                        child: Icon(
+                          _iconFor(period),
+                          color: colorScheme.primary,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        period.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(
+                        period.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: AppTokens.gapSm),
+        ],
+      ),
+    );
+  }
+
+  static IconData _iconFor(ReportPeriod period) {
+    return switch (period) {
+      ReportPeriod.last7Days => Icons.date_range_rounded,
+      ReportPeriod.last30Days => Icons.calendar_view_month_rounded,
+      ReportPeriod.monthToDate => Icons.today_rounded,
+      ReportPeriod.lastMonth => Icons.calendar_month_rounded,
+      ReportPeriod.last3Months => Icons.timeline_rounded,
+      ReportPeriod.thisYear => Icons.calendar_today_rounded,
+      ReportPeriod.allTime => Icons.all_inclusive_rounded,
+    };
+  }
 }

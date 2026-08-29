@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
+/// Income / expense pair shown inside the primary-coloured balance header.
 class SummaryItem extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -15,43 +18,61 @@ class SummaryItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 32,
-          height: 32,
+
+    return Semantics(
+      label: '$label $amount',
+      excludeSemantics: true,
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
-            color: colorScheme.onPrimary.withValues(alpha: 0.18),
-            shape: BoxShape.circle,
+              color: colorScheme.appOnHero.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: colorScheme.appOnHero, size: 16),
           ),
-          child: Icon(icon, color: colorScheme.onPrimary, size: 16),
-        ),
-        const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: colorScheme.onPrimary.withValues(alpha: 0.8),
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-              ),
+          const SizedBox(width: AppTokens.gapSm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.appOnHero.withValues(alpha: 0.85),
+                    fontSize: 12,
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      amount,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: colorScheme.appOnHero,
+                        fontSize: 16,
+                        height: 1.2,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 2),
-            Text(
-              amount,
-              style: TextStyle(
-                color: colorScheme.onPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
-
 }

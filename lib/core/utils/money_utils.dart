@@ -1,5 +1,14 @@
+import '../models/app_currency.dart';
+
 class MoneyUtils {
   const MoneyUtils._();
+
+  /// The currency every formatter here renders in.
+  ///
+  /// Deliberately a static rather than something threaded through hundreds of
+  /// call sites: formatting is a display concern and the app shows one
+  /// currency at a time. CurrencyController owns setting it.
+  static AppCurrency currency = AppCurrency.nepaleseRupee;
 
   static int parseToPaisa(String input) {
     final normalized = input.trim().replaceAll(',', '');
@@ -32,6 +41,21 @@ class MoneyUtils {
     return paisa / 100;
   }
 
+  /// The amount as the user would type it, for prefilling an edit field.
+  ///
+  /// No symbol and no separators, since this value is parsed straight back by
+  /// [parseToPaisa]. Whole rupees drop the ".00" so the field reads "500"
+  /// rather than "500.00".
+  static String editableAmount(double amount) {
+    final paisa = amountToPaisa(amount);
+    final rupees = paisa ~/ 100;
+    final cents = paisa % 100;
+    if (cents == 0) {
+      return rupees.toString();
+    }
+    return '$rupees.${cents.toString().padLeft(2, '0')}';
+  }
+
   static String? validateAmount(String? input) {
     if (input == null || input.trim().isEmpty) {
       return 'Please enter an amount';
@@ -57,31 +81,34 @@ class MoneyUtils {
     final absolute = paisa.abs();
     final rupees = absolute ~/ 100;
     final cents = absolute % 100;
-    final rupeesText = _formatWholeNumber(rupees);
+    final rupeesText = currency.grouping.format(rupees);
     final decimalText = cents == 0
         ? ''
         : '.${cents.toString().padLeft(2, '0')}';
     final sign = isNegative ? '-' : '';
 
-    return '$sign Rs. $rupeesText$decimalText';
+    return '$sign${currency.withSymbol('$rupeesText$decimalText')}';
   }
 
   static String formatAmount(double amount) {
     return formatPaisa(amountToPaisa(amount));
   }
 
-  static String _formatWholeNumber(int value) {
-    final source = value.toString();
-    final buffer = StringBuffer();
+  /// Short form for axis ticks and tight badges: `Rs. 12.4k`, `Rs. 1.2L`.
+  ///
+  /// The units come from the currency, so a rupee amount reads in lakhs and
+  /// crores while a dollar one reads in K, M and B.
+  static String formatCompactPaisa(int paisa) {
+    final isNegative = paisa < 0;
+    final amount = paisa.abs() / 100;
+    final sign = isNegative ? '-' : '';
 
-    for (var index = 0; index < source.length; index++) {
-      final remaining = source.length - index;
-      buffer.write(source[index]);
-      if (remaining > 1 && remaining % 3 == 1) {
-        buffer.write(',');
+    for (final unit in currency.compactUnits) {
+      if (amount >= unit.value) {
+        final scaled = (amount / unit.value).toStringAsFixed(1);
+        return '$sign${currency.withSymbol('$scaled${unit.suffix}')}';
       }
     }
-
-    return buffer.toString();
+    return '$sign${currency.withSymbol('${amount.round()}')}';
   }
 }

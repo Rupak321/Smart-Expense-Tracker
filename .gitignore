@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Ignore large binary files
+firebase.exe
+
+# Local secrets: passed to the build via --dart-define-from-file.
+# Never commit these — they contain a live API key.
+dart_defines.json
+dart_defines.*.json
+.env
+.env.*
+release-assets/

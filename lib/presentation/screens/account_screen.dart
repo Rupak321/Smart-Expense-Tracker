@@ -1,11 +1,25 @@
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../core/components/app_widgets.dart';
 import '../../../core/models/user_profile_model.dart';
+import '../../../core/models/app_currency.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/currency_controller.dart';
 import '../../../core/theme/app_theme_controller.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/account_deletion_service.dart';
+import '../../../services/app_lock_service.dart';
+import '../../../services/data_export_service.dart';
+import '../../../services/user_data_service.dart';
+import 'accounts_screen.dart';
+import 'bill_reminder_screen.dart';
+import 'budgets_screen.dart';
+import 'categories_screen.dart';
+import 'main_navigation.dart';
+import 'personal_details_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -15,234 +29,189 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
-  // Theme-aware colors are used from Theme.of(context)
-
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _occupationController = TextEditingController();
-
-  bool _isSaving = false;
-  bool _loadedProfile = false;
   String? _profileImagePath;
-  final ImagePicker _imagePicker = ImagePicker();
 
-  Box<UserProfileModel> get _box => Hive.box<UserProfileModel>('user_profile');
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    _emailController.dispose();
-    _occupationController.dispose();
-    super.dispose();
-  }
+  /// Whether this handset can lock at all. Hidden rather than shown disabled,
+  /// since a device with no screen lock cannot act on the setting.
+  bool _lockAvailable = false;
+  String _lockMethod = 'Device PIN or pattern';
 
   @override
   void initState() {
     super.initState();
-    // Load stored profile once to populate controllers without rebuilding on every change
-    final profile = _box.get('primary');
-    _loadProfile(profile);
+    _checkLockSupport();
   }
 
-  void _loadProfile(UserProfileModel? profile) {
-    if (_loadedProfile) {
-      return;
-    }
-
-    _nameController.text = profile?.name ?? '';
-    _phoneController.text = profile?.phoneNumber ?? '';
-    _addressController.text = profile?.address ?? '';
-    _emailController.text = profile?.email ?? '';
-    _occupationController.text = profile?.occupation ?? '';
-    _profileImagePath = profile?.profileImagePath;
-    _loadedProfile = true;
-  }
-
-  Future<void> _saveProfile() async {
-    if (_isSaving || !_formKey.currentState!.validate()) {
-      return;
-    }
-
-    setState(() => _isSaving = true);
-
-    final profile = UserProfileModel(
-      name: _nameController.text.trim(),
-      phoneNumber: _phoneController.text.trim(),
-      address: _addressController.text.trim(),
-      email: _emailController.text.trim(),
-      occupation: _occupationController.text.trim(),
-      updatedAt: DateTime.now(),
-      profileImagePath: _profileImagePath,
-    );
-
-    try {
-      await _box.put('primary', profile);
-      await _box.flush();
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Account details saved')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
-    }
+  Future<void> _checkLockSupport() async {
+    final available = await AppLockService.isAvailable();
+    final method = await AppLockService.describeAvailable();
+    if (!mounted) return;
+    setState(() {
+      _lockAvailable = available;
+      _lockMethod = method;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = NavShellInsets.of(context);
+
     return CustomScrollView(
       slivers: [
-        const SliverToBoxAdapter(child: _AccountHeader()),
+        const SliverToBoxAdapter(
+          child: ScreenHeader(
+            title: 'Account',
+            subtitle: 'Profile and app preferences',
+            icon: Icons.manage_accounts_rounded,
+          ),
+        ),
         SliverToBoxAdapter(
-          child: StreamBuilder<BoxEvent>(
-            stream: _box.watch(key: 'primary'),
+          child: StreamBuilder<UserProfileModel?>(
+            stream: UserDataService.profileStream(),
             builder: (context, snapshot) {
-              final profile = _box.get('primary');
+              final profile = snapshot.data;
+              final user = AuthService.currentUser;
               return _ProfileSummary(
                 profile: profile,
-                profileImagePath: _profileImagePath,
-                onAvatarTap: _pickProfileImage,
+                authUser: user,
+                profileImagePath:
+                    _profileImagePath ??
+                    profile?.profileImagePath ??
+                    user?.photoURL,
+                onTap: _openPersonalDetails,
               );
             },
           ),
         ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 170),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Personal Details',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+            padding: EdgeInsets.fromLTRB(
+              AppTokens.pageGutter,
+              AppTokens.gapLg,
+              AppTokens.pageGutter,
+              bottomInset,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _SettingsGroupLabel('Preferences'),
+                _SettingsTile(
+                  icon: Icons.person_rounded,
+                  title: 'Personal Details',
+                  subtitle: 'Name, phone, email, occupation, address',
+                  onTap: _openPersonalDetails,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: AppThemeController.themeMode,
+                  builder: (context, themeMode, child) {
+                    return _SettingsTile(
+                      icon: AppThemeController.iconFor(themeMode),
+                      title: 'Appearance',
+                      subtitle: AppThemeController.labelFor(themeMode),
+                      onTap: _showAppearancePicker,
+                    );
+                  },
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.account_balance_wallet_rounded,
+                  title: 'Accounts',
+                  subtitle: 'Cash, bank and wallets, and transfers between',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AccountsScreen(),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _nameController,
-                    label: 'Full Name',
-                    icon: Icons.person_rounded,
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _phoneController,
-                    label: 'Phone Number',
-                    icon: Icons.phone_rounded,
-                    keyboardType: TextInputType.phone,
-                    validator: _phoneValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _emailController,
-                    label: 'Email',
-                    icon: Icons.mail_rounded,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: _emailValidator,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _occupationController,
-                    label: 'Occupation',
-                    icon: Icons.work_rounded,
-                  ),
-                  const SizedBox(height: 12),
-                  _AccountField(
-                    controller: _addressController,
-                    label: 'Address',
-                    icon: Icons.location_on_rounded,
-                    minLines: 2,
-                    maxLines: 3,
-                    validator: _requiredValidator,
-                  ),
-                  const SizedBox(height: 18),
-                  ElevatedButton.icon(
-                    onPressed: _isSaving ? null : _saveProfile,
-                    icon: Icon(
-                      _isSaving ? Icons.hourglass_top_rounded : Icons.save_rounded,
-                    ),
-                    label: Text(_isSaving ? 'Saving...' : 'Save Details'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                      disabledBackgroundColor:
-                          Theme.of(context).colorScheme.primary.withValues(alpha: 0.55),
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      textStyle: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.savings_rounded,
+                  title: 'Budgets',
+                  subtitle: 'Monthly ceilings and how they are tracking',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const BudgetsScreen(),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Settings',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.label_rounded,
+                  title: 'Categories',
+                  subtitle: 'Rename, merge, and tidy up duplicates',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const CategoriesScreen(),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  ValueListenableBuilder<ThemeMode>(
-                    valueListenable: AppThemeController.themeMode,
-                    builder: (context, themeMode, child) {
-                      final isDark = themeMode == ThemeMode.dark;
-
-                      return _SettingsSwitchTile(
-                        icon: isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                        title: 'Dark Mode',
-                        subtitle: isDark ? 'Dark theme on' : 'Light theme on',
-                        value: isDark,
-                        onChanged: AppThemeController.setDarkMode,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  _SettingsTile(
-                    icon: Icons.currency_rupee_rounded,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                ValueListenableBuilder<AppCurrency>(
+                  valueListenable: CurrencyController.currency,
+                  builder: (context, currency, child) => _SettingsTile(
+                    icon: Icons.payments_rounded,
                     title: 'Currency',
-                    subtitle: 'Nepalese Rupee',
-                    onTap: () => _showSettingMessage(
-                      context,
-                      'Currency settings are coming soon',
+                    subtitle: '${currency.name} (${currency.symbol})',
+                    onTap: _chooseCurrency,
+                  ),
+                ),
+                const SizedBox(height: AppTokens.gapLg),
+                const _SettingsGroupLabel('Reminders'),
+                _SettingsTile(
+                  icon: Icons.notifications_rounded,
+                  title: 'Bill Reminder',
+                  subtitle: 'Electricity, internet, rent, EMI alerts',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const BillReminderScreen(),
                     ),
                   ),
-                  const SizedBox(height: 10),
+                ),
+                const SizedBox(height: AppTokens.gapLg),
+                const _SettingsGroupLabel('About'),
+                _SettingsTile(
+                  icon: Icons.info_rounded,
+                  title: 'About App',
+                  subtitle: 'Smart Expense v1.0.0',
+                  onTap: _showAboutDialog,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                if (_lockAvailable)
                   _SettingsTile(
-                    icon: Icons.notifications_rounded,
-                    title: 'Notifications',
-                    subtitle: 'Budget reminders and alerts',
-                    onTap: () => _showSettingMessage(
-                      context,
-                      'Notification settings are coming soon',
-                    ),
+                    icon: AppLockService.isEnabled
+                        ? Icons.lock_rounded
+                        : Icons.lock_open_rounded,
+                    title: 'App lock',
+                    subtitle: AppLockService.isEnabled
+                        ? 'On — $_lockMethod'
+                        : 'Off — anyone with your phone can read this',
+                    onTap: _toggleAppLock,
                   ),
-                  const SizedBox(height: 10),
-                  _SettingsTile(
-                    icon: Icons.info_rounded,
-                    title: 'About App',
-                    subtitle: 'Smart Expense v1.0.0',
-                    onTap: () => _showAboutDialog(context),
-                  ),
-                ],
-              ),
+                if (_lockAvailable) const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.download_rounded,
+                  title: 'Export data',
+                  subtitle: 'Your transactions and budgets as CSV',
+                  onTap: _exportData,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.logout_rounded,
+                  title: 'Log out',
+                  subtitle: 'Sign out of this device',
+                  isDestructive: true,
+                  onTap: _confirmLogout,
+                ),
+                const SizedBox(height: AppTokens.gapSm),
+                _SettingsTile(
+                  icon: Icons.person_remove_rounded,
+                  title: 'Delete account',
+                  subtitle: 'Erase everything and close this account',
+                  isDestructive: true,
+                  onTap: _confirmDeleteAccount,
+                ),
+              ],
             ),
           ),
         ),
@@ -250,58 +219,271 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
-  String? _requiredValidator(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'This field is required';
-    }
-    return null;
-  }
+  Future<void> _toggleAppLock() async {
+    final turningOn = !AppLockService.isEnabled;
+    final changed = await AppLockService.setEnabled(turningOn);
+    if (!mounted) return;
 
-  String? _phoneValidator(String? value) {
-    final trimmed = value?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return 'Phone number is required';
-    }
-    if (!RegExp(r'^[0-9+\-\s]{7,16}$').hasMatch(trimmed)) {
-      return 'Enter a valid phone number';
-    }
-    return null;
-  }
-
-  String? _emailValidator(String? value) {
-    final trimmed = value?.trim() ?? '';
-    if (trimmed.isEmpty) {
-      return 'Email is required';
-    }
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(trimmed)) {
-      return 'Enter a valid email address';
-    }
-    return null;
-  }
-
-  Future<void> _pickProfileImage() async {
-    final picked = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 80,
-    );
-    if (picked == null) {
+    if (!changed) {
+      // Only reachable when turning on, since enabling asks the user to pass
+      // the lock once first so a mis-set lock cannot shut them out.
+      _showSettingMessage('App lock not turned on');
       return;
     }
 
-    setState(() {
-      _profileImagePath = picked.path;
-    });
+    setState(() {});
+    _showSettingMessage(turningOn ? 'App lock is on' : 'App lock is off');
   }
 
-  void _showSettingMessage(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _chooseCurrency() async {
+    final selected = await showModalBottomSheet<AppCurrency>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final current = CurrencyController.currency.value;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.gapXl,
+                  AppTokens.gapLg,
+                  AppTokens.gapXl,
+                  AppTokens.gapSm,
+                ),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Currency',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTokens.gapXl,
+                  0,
+                  AppTokens.gapXl,
+                  AppTokens.gapMd,
+                ),
+                child: Text(
+                  'Changes the symbol and how digits are grouped. Amounts you '
+                  'have already recorded are not converted.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              RadioGroup<AppCurrency>(
+                groupValue: current,
+                onChanged: (value) => Navigator.pop(sheetContext, value),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in AppCurrency.supported)
+                      RadioListTile<AppCurrency>(
+                        value: option,
+                        title: Text(option.name),
+                        subtitle: Text('${option.code} · ${option.symbol}'),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppTokens.gapMd),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null) return;
+    await CurrencyController.set(selected);
+    if (mounted) {
+      setState(() {});
+      _showSettingMessage('Amounts now shown in ${selected.name}');
+    }
   }
 
-  void _showAboutDialog(BuildContext context) {
+  Future<void> _exportData() async {
+    _showSettingMessage('Preparing your export…');
+    try {
+      final count = await DataExportService.exportEverything();
+      if (!mounted) return;
+      if (count == null) {
+        _showSettingMessage('Nothing to export yet');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSettingMessage('Could not build the export');
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Deleting is unrecoverable, so the confirmation says exactly what goes
+    // and offers the export as the way out first.
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'Every transaction, category, budget, bill reminder and assistant '
+          'conversation will be permanently erased, and the account closed. '
+          'This cannot be undone. '
+          'Export your data first if you might want it later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'export'),
+            child: const Text('Export first'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'delete'),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+
+    if (choice == 'export') {
+      await _exportData();
+      return;
+    }
+
+    // A second, typed confirmation. The first dialog can be dismissed by a
+    // stray tap; this one cannot be reached by accident.
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Type DELETE to confirm'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(hintText: 'DELETE'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              controller.text.trim().toUpperCase() == 'DELETE',
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (!mounted || confirmed != true) return;
+
+    _showSettingMessage('Deleting…');
+    final error = await AccountDeletionService.deleteAccount();
+    if (!mounted) return;
+
+    if (error != null) {
+      _showSettingMessage(error);
+    }
+  }
+
+  Future<void> _openPersonalDetails() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const PersonalDetailsScreen()),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  void _showSettingMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _showAppearancePicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: ValueListenableBuilder<ThemeMode>(
+            valueListenable: AppThemeController.themeMode,
+            builder: (context, themeMode, child) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppTokens.gapXl,
+                      0,
+                      AppTokens.gapXl,
+                      AppTokens.gapSm,
+                    ),
+                    child: Text(
+                      'Appearance',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  RadioGroup<ThemeMode>(
+                    groupValue: themeMode,
+                    onChanged: (value) {
+                      if (value != null) {
+                        AppThemeController.setThemeMode(value);
+                      }
+                    },
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final mode in ThemeMode.values)
+                          RadioListTile<ThemeMode>(
+                            value: mode,
+                            secondary: Icon(AppThemeController.iconFor(mode)),
+                            title: Text(AppThemeController.labelFor(mode)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppTokens.gapMd),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAboutDialog() {
+    final colorScheme = Theme.of(context).colorScheme;
     showAboutDialog(
       context: context,
       applicationName: 'Smart Expense',
@@ -310,11 +492,13 @@ class _AccountScreenState extends State<AccountScreen> {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
+          color: colorScheme.primary.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         ),
-        child: Icon(Icons.account_balance_wallet,
-            color: Theme.of(context).colorScheme.primary),
+        child: Icon(
+          Icons.account_balance_wallet_rounded,
+          color: colorScheme.primary,
+        ),
       ),
       children: const [
         Text(
@@ -323,40 +507,59 @@ class _AccountScreenState extends State<AccountScreen> {
       ],
     );
   }
+
+  Future<void> _confirmLogout() async {
+    final colorScheme = Theme.of(context).colorScheme;
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'You will need to sign in again to see your data on this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout != true) return;
+
+    await AuthService.logout();
+    if (mounted) {
+      _showSettingMessage('Signed out');
+    }
+  }
 }
 
-class _AccountHeader extends StatelessWidget {
-  const _AccountHeader();
+class _SettingsGroupLabel extends StatelessWidget {
+  final String label;
+
+  const _SettingsGroupLabel(this.label);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Account',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface,
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              Icons.manage_accounts_rounded,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.only(left: 4, bottom: AppTokens.gapSm),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontSize: 11,
+          letterSpacing: 0.8,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -364,123 +567,151 @@ class _AccountHeader extends StatelessWidget {
 
 class _ProfileSummary extends StatelessWidget {
   final UserProfileModel? profile;
+  final User? authUser;
   final String? profileImagePath;
-  final VoidCallback? onAvatarTap;
+  final VoidCallback? onTap;
 
   const _ProfileSummary({
     required this.profile,
+    this.authUser,
     this.profileImagePath,
-    this.onAvatarTap,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = profile?.name.trim().isEmpty == false
+    final colorScheme = Theme.of(context).colorScheme;
+    final name = profile?.name.trim().isNotEmpty == true
         ? profile!.name
+        : authUser?.displayName?.trim().isNotEmpty == true
+        ? authUser!.displayName!
         : 'Your Name';
-    final phone = profile?.phoneNumber.trim().isEmpty == false
+    final phone = profile?.phoneNumber.trim().isNotEmpty == true
         ? profile!.phoneNumber
         : 'Add phone number';
-    final address = profile?.address.trim().isEmpty == false
+    final address = profile?.address.trim().isNotEmpty == true
         ? profile!.address
         : 'Add address';
     final initial = name == 'Your Name'
         ? 'U'
         : name.substring(0, 1).toUpperCase();
+    final imagePath =
+        profileImagePath ?? profile?.profileImagePath ?? authUser?.photoURL;
+    final hasProfileImage =
+        imagePath != null &&
+        imagePath.isNotEmpty &&
+        (imagePath.startsWith('http') || File(imagePath).existsSync());
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.22),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTokens.pageGutter,
+        vertical: AppTokens.gapSm,
       ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onAvatarTap,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.18),
-                    shape: BoxShape.circle,
-                    image: (profileImagePath ?? profile?.profileImagePath) != null &&
-                            (profileImagePath ?? profile?.profileImagePath)!.isNotEmpty
-                        ? DecorationImage(
-                            image: FileImage(File(profileImagePath ?? profile!.profileImagePath!)),
-                            fit: BoxFit.cover,
-                          )
-                        : null,
-                  ),
-                ),
-                if ((profileImagePath ?? profile?.profileImagePath) == null ||
-                    (profileImagePath ?? profile?.profileImagePath)!.isEmpty)
-                  Text(
-                    initial,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onPrimary,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Theme.of(context).colorScheme.onPrimary,
-                        width: 1.5,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colorScheme.appHeroGradient,
+              ),
+              borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(AppTokens.gapLg),
+              child: Row(
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          color: colorScheme.appOnHero.withValues(alpha: 0.18),
+                          shape: BoxShape.circle,
+                          image: hasProfileImage
+                              ? DecorationImage(
+                                  image: imagePath.startsWith('http')
+                                      ? NetworkImage(imagePath) as ImageProvider
+                                      : FileImage(File(imagePath)),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
                       ),
-                    ),
-                    child: Icon(
-                      Icons.edit,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.primary,
+                      if (!hasProfileImage)
+                        Text(
+                          initial,
+                          style: TextStyle(
+                            color: colorScheme.appOnHero,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      Positioned(
+                        bottom: 0,
+                        right: 0,
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: colorScheme.appCard,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: colorScheme.appOnHero,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.edit_rounded,
+                            size: 14,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: AppTokens.gapLg),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colorScheme.appOnHero,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: AppTokens.gapSm),
+                        _SummaryLine(icon: Icons.phone_rounded, text: phone),
+                        const SizedBox(height: AppTokens.gapXs),
+                        _SummaryLine(
+                          icon: Icons.location_on_rounded,
+                          text: address,
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: colorScheme.appOnHero.withValues(alpha: 0.7),
                   ),
-                ),
-                const SizedBox(height: 6),
-                _SummaryLine(icon: Icons.phone_rounded, text: phone),
-                const SizedBox(height: 4),
-                _SummaryLine(icon: Icons.location_on_rounded, text: address),
-              ],
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -494,17 +725,21 @@ class _SummaryLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onHero = Theme.of(
+      context,
+    ).colorScheme.appOnHero.withValues(alpha: 0.85);
+
     return Row(
       children: [
-        Icon(icon, color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.82), size: 15),
-        const SizedBox(width: 6),
+        Icon(icon, color: onHero, size: 14),
+        const SizedBox(width: AppTokens.gapXs + 2),
         Expanded(
           child: Text(
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Theme.of(context).colorScheme.onPrimary.withValues(alpha: 0.82),
+              color: onHero,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -515,78 +750,31 @@ class _SummaryLine extends StatelessWidget {
   }
 }
 
-class _AccountField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  final IconData icon;
-  final TextInputType? keyboardType;
-  final int minLines;
-  final int maxLines;
-  final String? Function(String? value)? validator;
-
-  const _AccountField({
-    required this.controller,
-    required this.label,
-    required this.icon,
-    this.keyboardType,
-    this.minLines = 1,
-    this.maxLines = 1,
-    this.validator,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      minLines: minLines,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: Theme.of(context).iconTheme.color),
-        filled: true,
-        fillColor: Theme.of(context).colorScheme.surface,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.5,
-          ),
-        ),
-      ),
-      validator: validator,
-    );
-  }
-}
-
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+  final bool isDestructive;
 
   const _SettingsTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.isDestructive = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final accent = isDestructive ? colorScheme.error : colorScheme.primary;
+
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: colorScheme.appCard,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+        side: BorderSide(color: colorScheme.appBorder),
       ),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
@@ -595,87 +783,34 @@ class _SettingsTile extends StatelessWidget {
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+            color: accent.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(AppTokens.radiusSm),
           ),
-          child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          child: Icon(icon, color: accent, size: 21),
         ),
         title: Text(
           title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
+            color: isDestructive ? colorScheme.error : colorScheme.onSurface,
             fontSize: 14,
             fontWeight: FontWeight.w800,
           ),
         ),
         subtitle: Text(
           subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: Theme.of(context).textTheme.bodySmall?.color ??
-                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+            color: colorScheme.onSurfaceVariant,
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),
-        trailing: const Icon(Icons.chevron_right_rounded),
-      ),
-    );
-  }
-}
-
-class _SettingsSwitchTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _SettingsSwitchTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Theme.of(context).dividerColor),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: SwitchListTile(
-        value: value,
-        onChanged: onChanged,
-        activeThumbColor: Theme.of(context).colorScheme.primary,
-        secondary: Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: Theme.of(context).colorScheme.primary),
-        ),
-        title: Text(
-          title,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(
-            color: Theme.of(context).textTheme.bodySmall?.color ??
-                Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: colorScheme.onSurfaceVariant,
         ),
       ),
     );

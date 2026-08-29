@@ -1,3 +1,10 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 allprojects {
     repositories {
         google()
@@ -17,6 +24,18 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    if (project.name != "app") {
+        afterEvaluate {
+            if (project.plugins.hasPlugin("com.android.library")) {
+                project.extensions.configure<com.android.build.gradle.LibraryExtension> {
+                    compileSdk = 36
+                }
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

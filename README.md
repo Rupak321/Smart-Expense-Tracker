@@ -41,10 +41,13 @@ properly and then talks to you about it.
 | | |
 |---|---|
 | **Quick add** | Natural-language entry: `spent 500 on lunch`, `got 45k salary` |
-| **Manual entry** | Amount, title, category, income/expense |
+| **Manual entry** | Amount, title, category, date, account, income/expense |
+| **Editing** | Change any field on a record without deleting and retyping it |
+| **Receipts** | Attach a photo to any transaction, kept on the device |
 | **Bill scanning** | On-device OCR (ML Kit) fills a reminder from a photo |
 | **Recurring expenses** | Daily to yearly, with automatic catch-up on open |
-| **Bill reminders** | Local notifications ahead of a due date |
+| **Bill reminders** | Local notifications, and one tap to record the payment |
+| **Search and filters** | By text, direction, period, category and four sort orders |
 
 ### Understanding
 
@@ -56,6 +59,29 @@ properly and then talks to you about it.
   observations and page furniture
 - **One-off income** — flag a windfall so a single asset sale does not
   masquerade as a 99% savings rate
+- **Budgets** — a monthly ceiling per category or across all spending, judged
+  on pace rather than the running total, since 60% used on the 15th is fine
+  and the same figure on the 5th is not
+
+### Accounts and money movement
+
+- **Accounts** — cash, bank, wallets and cards, each with an opening balance
+  and its own running balance
+- **Transfers** — moving your own money between accounts is recorded as a
+  paired entry that changes both balances without counting as income or
+  spending, so a Rs. 25,000 shuffle to savings does not appear as Rs. 25,000
+  of expenditure
+
+### Keeping it yours
+
+- **App lock** — the device biometric or PIN, re-arming whenever the app is
+  backgrounded
+- **CSV export** — transactions and budgets out through the share sheet,
+  quoted per RFC 4180 and with plain numeric amounts a spreadsheet can total
+- **Account deletion** — erase every record and close the account from inside
+  the app
+- **Currency** — NPR, INR, USD, EUR or GBP; symbol and digit grouping only,
+  because the app holds no exchange rate and will not invent one
 
 ### The assistant
 
@@ -194,26 +220,32 @@ in both themes.
 flutter test
 ```
 
-156 tests, covering:
+273 tests, covering:
 
 - **Insights and report maths** — totals over full history, month-over-month
   difference, savings rate, burn and runway, period filtering, previous-period
   comparison
 - **Category matching** — exact, synonym and fuzzy resolution, direction
   awareness, merge direction, duplicate detection
-- **Money formatting** — grouping, compact form, parsing round-trips
+- **Money formatting** — South Asian and western grouping, compact form,
+  parsing round-trips, currency switching
+- **Budget pace** — comfortable, tight, on-track-to-overspend and over
+- **Accounts and transfers** — per-account balances, and that a transfer never
+  reaches income, spending, a savings rate or a budget
+- **Transaction direction** — that a stored expense stays an expense whatever
+  words its title contains
+- **CSV escaping** — commas, quotes and newlines inside free-text fields
 - **Layout** — shared components rendered at 320px and the maximum text scale,
   failing on any overflow
 
 ## Roadmap
 
-- Budgets and per-category limits
-- Transaction editing, search and filtering
-- Receipt scanning straight into a transaction
 - Savings goals
-- CSV export
 - Recurring income
-- Nepali localisation
+- Nepali localisation, and Devanagari in exported PDFs
+- Home-screen widget for quick add
+- Splitting an expense between people
+- A real application id and release signing key
 
 ## Contributing
 
